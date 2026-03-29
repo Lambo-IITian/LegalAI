@@ -32,6 +32,33 @@ def _new_id(prefix: str):
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
 
+def _build_insights(case: dict) -> dict:
+    intake = case.get("intake_data") or {}
+    legal = case.get("legal_data") or {}
+    analytics = case.get("analytics_data") or {}
+    strengths = intake.get("claimant_strengths") or legal.get("claimant_rights") or []
+    defenses = legal.get("respondent_defenses") or []
+    weaknesses = intake.get("claimant_weaknesses") or analytics.get("risk_factors") or []
+    proof_gaps = intake.get("missing_proof_checklist") or analytics.get("missing_evidence") or []
+    return {
+        "what_helps_claimant": strengths,
+        "what_hurts_claimant": weaknesses,
+        "respondent_defenses": defenses,
+        "how_respondent_can_win": legal.get("respondent_win_paths") or defenses,
+        "missing_proof": proof_gaps,
+        "recommended_first_demand": analytics.get("recommended_first_demand") or case.get("claim_amount"),
+        "recommended_settlement_range": {
+            "min": analytics.get("zopa_min"),
+            "optimal": analytics.get("zopa_optimal"),
+            "max": analytics.get("zopa_max"),
+        },
+        "forum": legal.get("forum_name"),
+        "win_probability": analytics.get("win_probability"),
+        "court_cost_estimate": analytics.get("court_cost_estimate"),
+        "time_to_resolution_months": analytics.get("time_to_resolution_months"),
+    }
+
+
 # -------------------------
 # ROUND MANAGEMENT
 # -------------------------
@@ -291,3 +318,165 @@ async def proposal_response(
     )
 
     return {"message": "Waiting for other party decision"}
+
+
+@router.post("/proof-response")
+async def proof_response(
+    body: ProofResponseRequest,
+    current_user: dict = Depends(get_current_user_optional),
+):
+    case = cosmos_service.get_case(body.case_id)
+    if not case:
+        raise CaseNotFound(body.case_id)
+
+    if body.party == "claimant":
+        if not current_user or current_user["email"] != case["claimant_email"]:
+            raise UnauthorizedAccess()
+    elif body.party != "respondent":
+        raise HTTPException(status_code=400, detail="party must be 'claimant' or 'respondent'")
+
+    neg = cosmos_service.get_negotiation_by_case(body.case_id)
+    if not neg:
+        raise HTTPException(status_code=404, detail="Negotiation not found.")
+
+    proof_item = next((item for item in neg.get("proof_requests", []) if item.get("id") == body.request_id), None)
+    if not proof_item:
+        raise HTTPException(status_code=404, detail="Proof request not found.")
+    if proof_item.get("requested_from") != body.party:
+        raise HTTPException(status_code=403, detail="This proof request is not assigned to your side.")
+
+    cosmos_service.update_proof_request(
+        neg["id"],
+        body.request_id,
+        {
+            "status": "RESPONDED",
+            "response_text": body.response_text.strip(),
+            "file_refs": body.file_refs or [],
+            "response_at": _now(),
+        },
+    )
+
+    cosmos_service.append_shared_note(
+        neg["id"],
+        {
+            "id": _new_id("note"),
+            "round_number": body.round_number,
+            "party": body.party,
+            "note_type": "proof_response",
+            "text": body.response_text.strip(),
+            "created_at": _now(),
+        },
+    )
+
+    refreshed_neg = cosmos_service.get_negotiation_by_case(body.case_id)
+    round_doc = cosmos_service.get_round(refreshed_neg["id"], body.round_number)
+    pending = [
+        item for item in refreshed_neg.get("proof_requests", [])
+        if item.get("round_number") == body.round_number and item.get("status") == "PENDING"
+    ]
+
+    if round_doc:
+        round_doc["unresolved_proof_request_ids"] = [item["id"] for item in pending]
+        cosmos_service.upsert_round_in_negotiation(refreshed_neg["id"], body.round_number, round_doc)
+
+    claimant_submitted = bool((round_doc or {}).get("claimant", {}).get("submitted_at"))
+    respondent_submitted = bool((round_doc or {}).get("respondent", {}).get("submitted_at"))
+
+    if pending:
+        waiting = pending[0]["requested_from"]
+        waiting_status = CaseStatus.PROOF_REQUESTED
+    elif claimant_submitted and respondent_submitted:
+        waiting = None
+        waiting_status = CaseStatus.MEDIATOR_REVIEW
+    elif claimant_submitted:
+        waiting = "respondent"
+        waiting_status = CaseStatus.WAITING_FOR_RESPONDENT
+    elif respondent_submitted:
+        waiting = "claimant"
+        waiting_status = CaseStatus.WAITING_FOR_CLAIMANT
+    else:
+        waiting = None
+        waiting_status = CaseStatus.NEGOTIATION_OPEN
+
+    cosmos_service.transition_case(
+        body.case_id,
+        waiting_status,
+        {
+            "current_round": body.round_number,
+            "action_required_by": waiting,
+        },
+    )
+    cosmos_service.update_negotiation(refreshed_neg["id"], {"current_waiting_on": waiting})
+
+    return {
+        "message": "Proof response recorded and shared with the other party.",
+        "status": waiting_status.value,
+        "action_required_by": waiting,
+    }
+
+
+@router.get("/status/{case_id}")
+async def get_negotiation_status(
+    case_id: str,
+    current_user: dict = Depends(get_current_user_optional),
+):
+    case = cosmos_service.get_case(case_id)
+    if not case:
+        raise CaseNotFound(case_id)
+
+    if current_user and current_user.get("email") != case.get("claimant_email"):
+        raise UnauthorizedAccess()
+
+    neg = cosmos_service.get_negotiation_by_case(case_id)
+    round_number = case.get("current_round", 0)
+    current_round = cosmos_service.get_round(neg["id"], round_number) if neg and round_number > 0 else None
+
+    current_round_detail = None
+    if current_round:
+        claimant = current_round.get("claimant") or {}
+        respondent = current_round.get("respondent") or {}
+        current_round_detail = {
+            "claimant_submitted": bool(claimant.get("submitted_at")),
+            "respondent_submitted": bool(respondent.get("submitted_at")),
+            "proposal_issued": bool(current_round.get("ai_proposed_amount") or current_round.get("ai_proposed_actions")),
+            "proposed_amount": current_round.get("settlement_candidate_amount") or current_round.get("ai_proposed_amount"),
+            "ai_reasoning": current_round.get("settlement_candidate_reason") or current_round.get("ai_reasoning"),
+            "ai_reasoning_breakdown": current_round.get("ai_reasoning_breakdown"),
+            "ai_reasoning_log": current_round.get("ai_reasoning_log", []),
+            "claimant_decision": claimant.get("decision"),
+            "respondent_decision": respondent.get("decision"),
+            "claimant_offer": claimant.get("amount"),
+            "respondent_offer": respondent.get("amount"),
+            "claimant_explanation": claimant.get("explanation"),
+            "respondent_explanation": respondent.get("explanation"),
+            "claimant_proof_note": claimant.get("proof_note"),
+            "respondent_proof_note": respondent.get("proof_note"),
+            "claimant_requested_proof": claimant.get("requested_proof", []),
+            "respondent_requested_proof": respondent.get("requested_proof", []),
+            "settlement_candidate_amount": current_round.get("settlement_candidate_amount"),
+            "settlement_candidate_reason": current_round.get("settlement_candidate_reason"),
+            "unresolved_proof_request_ids": current_round.get("unresolved_proof_request_ids", []),
+        }
+
+    return {
+        "case_id": case_id,
+        "status": case["status"],
+        "current_round": round_number,
+        "max_rounds": case.get("max_rounds", 3),
+        "track": case.get("track"),
+        "action_required_by": case.get("action_required_by"),
+        "settlement_url": case.get("settlement_url"),
+        "settlement_email_status": case.get("settlement_email_status"),
+        "ai_reasoning_log": case.get("ai_reasoning_log", []),
+        "insights": _build_insights(case),
+        "negotiation": {
+            "id": neg["id"] if neg else None,
+            "offer_type": neg.get("offer_type") if neg else None,
+            "rounds_done": len(neg.get("rounds", [])) if neg else 0,
+            "current_waiting_on": neg.get("current_waiting_on") if neg else None,
+            "rounds": neg.get("rounds", []) if neg else [],
+            "proof_requests": neg.get("proof_requests", []) if neg else [],
+            "shared_notes": neg.get("shared_notes", []) if neg else [],
+        },
+        "current_round_detail": current_round_detail,
+    }
