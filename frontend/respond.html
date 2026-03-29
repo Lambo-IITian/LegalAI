@@ -350,6 +350,19 @@ function renderCase() {
     </div>
   `;
 
+  document.getElementById('legalContent').innerHTML += `
+    <div style="margin-top:12px;">
+      <div class="section-title">Court vs Settlement</div>
+      <div style="font-size:13px;color:var(--dark);line-height:1.6;">${caseData.cost_summary?.cost_comparison || 'A negotiated resolution usually avoids the cost and delay of court.'}</div>
+    </div>
+    <div style="margin-top:12px;">
+      <div class="section-title">Live Agent Reasoning Log</div>
+      ${(caseData.ai_reasoning_log || []).slice().reverse().slice(0, 6).map(entry =>
+        `<div style="padding:8px 10px;border:1px solid #E2E8F0;border-radius:10px;margin-bottom:8px;background:rgba(255,255,255,0.72);"><div style="font-size:12px;font-weight:700;color:var(--navy);">${entry.title}</div><div style="font-size:12px;color:var(--dark);margin-top:4px;">${entry.detail}</div></div>`
+      ).join('') || '<div style="font-size:13px;color:var(--muted);">No reasoning entries yet.</div>'}
+    </div>
+  `;
+
   // Action panel
   renderActionPanel(ng, c);
 }
@@ -365,6 +378,7 @@ function renderActionPanel(ng, c) {
         <div class="alert alert-${status==='SETTLED'?'success':'error'}">
           This case has been ${status.toLowerCase().replace('_',' ')}.
         </div>
+        ${c.settlement_url ? `<a class="btn btn-green btn-full" href="${c.settlement_url}" target="_blank" rel="noopener noreferrer">Download Settlement Agreement</a>` : ''}
       </div>
     `;
     return;
@@ -403,6 +417,22 @@ function renderActionPanel(ng, c) {
         ${ng.ai_reasoning ? `
           <div class="reasoning-box">
             <p><b style="color:#93C5FD;">AI Mediator Reasoning:</b> ${ng.ai_reasoning}</p>
+          </div>
+        ` : ''}
+        ${ng.ai_reasoning_breakdown ? `
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
+            <div class="card" style="padding:14px;margin:0;background:rgba(255,255,255,0.72);">
+              <div class="section-title">Amount Logic</div>
+              <div style="font-size:13px;line-height:1.6;">${ng.ai_reasoning_breakdown.amount_logic || '—'}</div>
+            </div>
+            <div class="card" style="padding:14px;margin:0;background:rgba(255,255,255,0.72);">
+              <div class="section-title">Evidence Weight</div>
+              <div style="font-size:13px;line-height:1.6;">${ng.ai_reasoning_breakdown.evidence_weight || '—'}</div>
+            </div>
+          </div>
+          <div class="card" style="padding:14px;margin-top:12px;background:rgba(255,255,255,0.72);">
+            <div class="section-title">Mediator Reasoning Log</div>
+            ${(ng.ai_reasoning_log || []).map(step => `<div style="font-size:13px;padding:3px 0;">â€¢ ${step}</div>`).join('') || '<div style="font-size:13px;color:var(--muted);">No detailed mediator log yet.</div>'}
           </div>
         ` : ''}
         <div style="display:flex;gap:12px;margin-top:16px;">
@@ -482,6 +512,10 @@ function renderActionPanel(ng, c) {
           <label>Ask claimant for proof</label>
           <input type="text" id="respondentRequestedProof" placeholder="Comma-separated, e.g. move-out photos, payment receipt, invoice copy">
         </div>
+        <div class="form-group">
+          <label>Upload supporting evidence</label>
+          <input type="file" id="respondentEvidenceUpload">
+        </div>
         <button class="btn btn-primary" onclick="submitOffer()">
           Submit Offer →
         </button>
@@ -529,6 +563,12 @@ async function submitOffer() {
   if (!amt) return alert('Enter your offer amount.');
   const explanation = document.getElementById('respondentExplanation')?.value.trim() || '';
   const proofNote = document.getElementById('respondentProofNote')?.value.trim() || '';
+  let uploadedEvidenceUrl = '';
+  const evidenceFile = document.getElementById('respondentEvidenceUpload')?.files?.[0];
+  if (evidenceFile) {
+    const uploaded = await uploadRespondentEvidence(evidenceFile);
+    uploadedEvidenceUrl = uploaded?.url || '';
+  }
   const requestedProof = (document.getElementById('respondentRequestedProof')?.value || '')
     .split(',')
     .map(x => x.trim())
@@ -538,7 +578,7 @@ async function submitOffer() {
       case_id:      caseId,
       offer_amount: Number(amt),
       explanation: explanation,
-      proof_note: proofNote,
+      proof_note: uploadedEvidenceUrl ? `${proofNote}\nUploaded evidence: ${uploadedEvidenceUrl}`.trim() : proofNote,
       requested_proof: requestedProof,
     });
     showSuccess('Offer Submitted', 'Your offer has been recorded. The AI Mediator will generate a settlement proposal once both offers are received.');
@@ -561,12 +601,14 @@ async function acceptInFull() {
 
 async function submitDecision(decision) {
   try {
-    await axios.post(`${API}/api/respondent/proposal-response`, {
+    const response = await axios.post(`${API}/api/respondent/proposal-response`, {
       case_id: caseId, email: respondentEmail, decision,
       reason: decision === 'REJECT' ? prompt('Optional: why are you rejecting? Mention missing proof if relevant.') || '' : ''
     });
     const msg = decision === 'ACCEPT'
-      ? 'You accepted the proposal. Waiting for the claimant.'
+      ? (response.data?.settlement_url
+        ? 'You accepted the proposal. The case is now settled and the agreement is ready.'
+        : 'You accepted the proposal. Waiting for the claimant.')
       : 'You rejected the proposal. The next round will begin shortly.';
     showSuccess(decision === 'ACCEPT' ? 'Accepted' : 'Rejected', msg);
   } catch(e) {
@@ -604,6 +646,30 @@ async function submitProofResponse(requestId, roundNumber) {
     showSuccess('Proof Shared', 'Your proof response has been shared with the claimant.');
   } catch(e) {
     alert(e.response?.data?.detail || 'Failed to submit proof response.');
+  }
+}
+
+async function uploadRespondentEvidence(file) {
+  const toBase64 = f => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(f);
+  });
+
+  try {
+    const base64Data = await toBase64(file);
+    const r = await axios.post(`${API}/api/respondent/evidence-upload`, {
+      case_id: caseId,
+      email: respondentEmail,
+      filename: file.name,
+      content_type: file.type || 'application/octet-stream',
+      base64_data: base64Data,
+    });
+    return r.data;
+  } catch (e) {
+    alert(e.response?.data?.detail || 'Failed to upload respondent evidence.');
+    return null;
   }
 }
 

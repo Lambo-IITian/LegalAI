@@ -30,6 +30,10 @@ REASONING MUST INCLUDE:
 - What precedent supports it
 - Cost/time comparison (settle now vs court)
 - What each party gains by accepting
+- What evidence is helping the claimant
+- What evidence or defenses are helping the respondent
+- Why the number changed from the raw midpoint
+- What practical risk exists if either side refuses now
 
 NEVER mention:
 - The word "ZOPA"
@@ -40,6 +44,14 @@ Respond ONLY in valid JSON:
 {
   "proposed_amount": number,
   "reasoning": "paragraph shown to both parties — legally grounded, balanced",
+  "reasoning_breakdown": {
+    "amount_logic": "why this number is appropriate",
+    "evidence_weight": "how the evidence changed the proposal",
+    "court_comparison": "what court would likely cost in money/time",
+    "claimant_risk": "what the claimant risks by rejecting",
+    "respondent_risk": "what the respondent risks by rejecting"
+  },
+  "live_reasoning_log": ["step 1", "step 2", "step 3", "step 4"],
   "claimant_pressure": "internal note — what pressure applies to claimant",
   "respondent_pressure": "internal note — what pressure applies to respondent",
   "round_assessment": "convergent|divergent|reasonable|final_push",
@@ -129,7 +141,15 @@ Respond ONLY in valid JSON:
   "respondent_pressure": "internal note",
   "round_assessment": "convergent|divergent|reasonable|final_push",
   "settlement_likelihood": "LOW|MEDIUM|HIGH",
-  "mediator_notes": "internal observation"
+  "mediator_notes": "internal observation",
+  "reasoning_breakdown": {
+    "amount_logic": "why this number is appropriate",
+    "evidence_weight": "how the evidence changed the proposal",
+    "court_comparison": "what court would likely cost in money/time",
+    "claimant_risk": "what the claimant risks by rejecting",
+    "respondent_risk": "what the respondent risks by rejecting"
+  },
+  "live_reasoning_log": ["step 1", "step 2", "step 3", "step 4"]
 }
 """
 
@@ -260,6 +280,9 @@ def _build_legal_context(legal: dict, intake: dict) -> str:
 - Legal standing: {legal.get('legal_standing', 'MODERATE')}
 - Primary statutes: {law_str or 'To be determined'}
 - Evidence strength: {intake.get('evidence_strength_score', 50)}/100
+- Claimant strengths: {intake.get('claimant_strengths', [])}
+- Claimant weaknesses: {intake.get('claimant_weaknesses', [])}
+- Missing proof gaps: {intake.get('missing_proof_checklist', [])}
 - Respondent likely defenses: {legal.get('respondent_defenses', [])}
 - Relief available: {legal.get('relief_available', [])}"""
 
@@ -378,6 +401,27 @@ def _post_process(
         result["reasoning"] = _fallback_reasoning(
             case, round_number, result.get("proposed_amount", 0)
         )
+    result.setdefault(
+        "reasoning_breakdown",
+        {
+            "amount_logic": "The proposal tracks the midpoint adjusted for legal strength and round posture.",
+            "evidence_weight": "Available proof supports a negotiated outcome but leaves some litigation risk for both sides.",
+            "court_comparison": (
+                f"Court could cost around Rs. {analytics.get('court_cost_estimate', 75000):,.0f} "
+                f"and take about {analytics.get('time_to_resolution_months', 30)} months."
+            ),
+            "claimant_risk": "Rejecting may delay recovery and create enforcement risk.",
+            "respondent_risk": "Rejecting may increase exposure to cost, interest, and formal proceedings.",
+        },
+    )
+    result.setdefault(
+        "live_reasoning_log",
+        [
+            "Reviewed both sides' latest offers and the negotiation gap.",
+            "Adjusted the proposal for evidence strength, legal posture, and litigation cost.",
+            "Chose a number intended to maximize realistic settlement in this round.",
+        ],
+    )
 
     # Add round metadata
     result["round_number"] = round_number
@@ -422,6 +466,18 @@ def _fallback_proposal(
     return {
         "proposed_amount":    round(midpoint, 2),
         "reasoning":          _fallback_reasoning(case, round_number, midpoint),
+        "reasoning_breakdown": {
+            "amount_logic": "Fallback midpoint used because mediation reasoning was unavailable.",
+            "evidence_weight": "No additional weighting could be applied in fallback mode.",
+            "court_comparison": "Settlement still avoids the cost and delay of court.",
+            "claimant_risk": "Recovery may be delayed if the dispute escalates.",
+            "respondent_risk": "Exposure may rise if the dispute escalates.",
+        },
+        "live_reasoning_log": [
+            "Negotiation agent fallback activated.",
+            "Calculated midpoint from the parties' last monetary positions.",
+            "Returned a neutral compromise to keep the round moving.",
+        ],
         "claimant_pressure":  "Review carefully",
         "respondent_pressure": "Review carefully",
         "round_assessment":   "reasonable",

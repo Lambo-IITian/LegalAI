@@ -1,4 +1,6 @@
 import logging
+import os
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -8,6 +10,7 @@ from app.core.exceptions import CaseNotFound
 from app.models.case import CaseStatus
 from app.models.negotiation import ProofResponseRequest, ProposalDecision, ProposalResponseRequest
 from app.routers.negotiation import _build_insights, proposal_response, proof_response
+from app.services.blob_service import blob_service
 from app.services.cosmos_service import cosmos_service
 
 router = APIRouter()
@@ -40,6 +43,14 @@ class RespondentProofResponse(BaseModel):
     request_id: str
     response_text: str = Field(..., min_length=5, max_length=3000)
     file_refs: list[str] = []
+
+
+class RespondentEvidenceUpload(BaseModel):
+    case_id: str
+    email: str
+    filename: str
+    content_type: str = "application/octet-stream"
+    base64_data: str
 
 
 def _verify_case_email(case_id: str, email: str) -> dict:
@@ -85,6 +96,11 @@ async def get_respondent_case(case_id: str, email: str):
         "track": case.get("track"),
         "dispute_summary": dispute_summary,
         "legal_summary": legal_summary,
+        "cost_summary": {
+            "court_cost_estimate": (case.get("analytics_data") or {}).get("court_cost_estimate"),
+            "settlement_cost": (case.get("analytics_data") or {}).get("settlement_cost"),
+            "cost_comparison": (case.get("analytics_data") or {}).get("cost_comparison"),
+        },
         "insights": _build_insights(case),
         "negotiation": {
             "current_round": round_number,
@@ -98,11 +114,15 @@ async def get_respondent_case(case_id: str, email: str):
             ),
             "ai_proposed_amount": current_round.get("ai_proposed_amount") if current_round else None,
             "ai_reasoning": current_round.get("ai_reasoning") if current_round else None,
+            "ai_reasoning_breakdown": current_round.get("ai_reasoning_breakdown") if current_round else None,
+            "ai_reasoning_log": current_round.get("ai_reasoning_log", []) if current_round else [],
             "respondent_decision": (current_round.get("respondent") or {}).get("decision") if current_round else None,
             "proof_requests": neg.get("proof_requests", []) if neg else [],
             "shared_notes": neg.get("shared_notes", []) if neg else [],
             "rounds": neg.get("rounds", []) if neg else [],
         } if neg else None,
+        "strategy_data": case.get("strategy_data"),
+        "ai_reasoning_log": case.get("ai_reasoning_log", []),
     }
 
 
@@ -138,9 +158,13 @@ async def accept_in_full(body: RespondentVerify):
     if cosmos_service.get_case(body.case_id)["status"] == CaseStatus.RESPONDENT_VIEWED.value:
         cosmos_service.transition_case(body.case_id, CaseStatus.NEGOTIATION_OPEN)
 
-    import asyncio
-    asyncio.create_task(_handle_settlement(body.case_id))
-    return {"message": f"You have accepted the full amount of Rs. {settled_amount:,.0f}. Settlement agreement is being generated.", "settled_amount": settled_amount, "outcome": "SETTLED"}
+    settlement_result = await _handle_settlement(body.case_id)
+    return {
+        "message": f"You have accepted the full amount of Rs. {settled_amount:,.0f}. Settlement agreement is ready.",
+        "settled_amount": settled_amount,
+        "outcome": "SETTLED",
+        **settlement_result,
+    }
 
 
 @router.post("/dispute-facts")
@@ -223,3 +247,51 @@ async def respondent_proof_response(body: RespondentProofResponse):
         file_refs=body.file_refs,
     )
     return await proof_response(request, current_user=None)
+
+
+@router.post("/evidence-upload")
+async def respondent_evidence_upload(body: RespondentEvidenceUpload):
+    import base64
+
+    _verify_case_email(body.case_id, body.email)
+
+    original_name = body.filename or "respondent_evidence.bin"
+    ext = os.path.splitext(original_name)[1].lower()
+    allowed_extensions = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".doc", ".docx", ".txt"}
+    if ext and ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail="Unsupported evidence file type.")
+
+    try:
+        content = base64.b64decode(body.base64_data)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid file encoding.")
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    blob_name = f"{body.case_id}/respondent_{uuid.uuid4().hex}_{original_name}"
+    blob_service.upload("evidence", blob_name, content, content_type=body.content_type)
+    download_url = blob_service.generate_download_url("evidence", blob_name, expiry_hours=720)
+
+    case = cosmos_service.get_case(body.case_id)
+    file_record = {
+        "id": uuid.uuid4().hex,
+        "filename": original_name,
+        "blob_name": blob_name,
+        "url": download_url,
+        "content_type": body.content_type,
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        "uploaded_by": body.email,
+    }
+    evidence_ids = list(case.get("evidence_file_ids", []))
+    evidence_ids.append(file_record["id"])
+    evidence_files = list(case.get("evidence_files", []))
+    evidence_files.append(file_record)
+    cosmos_service.update_case(body.case_id, {"evidence_file_ids": evidence_ids, "evidence_files": evidence_files})
+    cosmos_service.append_case_reasoning_log(
+        body.case_id,
+        "evidence",
+        "Respondent evidence uploaded",
+        f"Respondent uploaded evidence file: {original_name}",
+        {"file_id": file_record["id"], "filename": original_name},
+    )
+    return file_record

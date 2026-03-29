@@ -696,6 +696,14 @@
       <div class="card-title">Review Your Case</div>
 
       <div id="reviewContent" style="font-size:13px;line-height:1.8;"></div>
+      <div style="margin-top:16px;padding:16px;border:1px solid #E2E8F0;border-radius:16px;background:rgba(255,255,255,0.72);">
+        <div class="section-title">Evidence Upload</div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:10px;">
+          Upload supporting evidence now. If you skip this step, you can still upload more evidence from the case analysis screen later.
+        </p>
+        <input type="file" id="evidenceFileInput" onchange="uploadEvidenceForDraft()">
+        <div id="draftEvidenceList" style="margin-top:12px;"></div>
+      </div>
 
       <div class="consent-box" style="margin-top:16px;">
         <label>
@@ -820,6 +828,7 @@ let token  = localStorage.getItem('legalai_token') || '';
 let user   = JSON.parse(localStorage.getItem('legalai_user') || 'null');
 let currentCaseId = null;
 let pollInterval  = null;
+let uploadedEvidenceFiles = [];
 
 // ════════════════════════════════════════════════
 // INIT
@@ -1101,7 +1110,14 @@ function buildReview() {
         ${document.getElementById('disputeText').value}
       </div>
     </div>
+    <div style="margin-top:12px;">
+      <div class="section-title">Evidence Files</div>
+      <div style="font-size:13px;color:var(--muted);">
+        ${uploadedEvidenceFiles.length ? uploadedEvidenceFiles.map(file => `• ${file.filename}`).join('<br>') : 'No evidence files uploaded yet.'}
+      </div>
+    </div>
   `;
+  renderDraftEvidenceList();
 }
 
 async function submitCase() {
@@ -1131,6 +1147,7 @@ async function submitCase() {
       claim_amount:            document.getElementById('claimAmount').value ? Number(document.getElementById('claimAmount').value) : null,
       incident_date:           document.getElementById('incidentDate').value || null,
       currency:                'INR',
+      evidence_file_ids:       uploadedEvidenceFiles.filter(file => !String(file.id).startsWith('draft_')).map(file => file.id),
       claimant_consent:        true,
       disclaimer_acknowledged: true,
     };
@@ -1138,12 +1155,24 @@ async function submitCase() {
     const r = await axios.post(`${API}/api/cases/submit`, payload, authHeaders());
     const caseId = r.data.case_id;
 
+    const draftUploads = uploadedEvidenceFiles.filter(file => String(file.id).startsWith('draft_') && file.fileObject);
+    const uploadedRealFiles = [];
+    for (const file of draftUploads) {
+      const uploaded = await uploadEvidenceToCase(caseId, null, file.fileObject);
+      if (uploaded) uploadedRealFiles.push(uploaded);
+    }
+    if (uploadedRealFiles.length) {
+      uploadedEvidenceFiles = uploadedRealFiles;
+    }
+
     showScreen('screenCase');
     openCase(caseId);
 
     // Reset form
     document.getElementById('disputeText').value = '';
     document.getElementById('claimAmount').value  = '';
+    uploadedEvidenceFiles = [];
+    renderDraftEvidenceList();
     setStep(1);
 
   } catch(e) {
@@ -1152,6 +1181,56 @@ async function submitCase() {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Submit Case →';
+  }
+}
+
+async function uploadEvidenceForDraft() {
+  const input = document.getElementById('evidenceFileInput');
+  const file = input?.files?.[0];
+  if (!file) return;
+  uploadedEvidenceFiles.push({
+    id: `draft_${Date.now()}`,
+    filename: file.name,
+    uploaded_at: new Date().toISOString(),
+    fileObject: file,
+  });
+  renderDraftEvidenceList();
+  input.value = '';
+}
+
+function renderDraftEvidenceList() {
+  const el = document.getElementById('draftEvidenceList');
+  if (!el) return;
+  el.innerHTML = uploadedEvidenceFiles.length
+    ? uploadedEvidenceFiles.map(file => `
+        <div style="padding:10px 12px;border:1px solid #E2E8F0;border-radius:12px;margin-bottom:8px;background:rgba(255,255,255,0.78);">
+          <div style="font-weight:700;color:var(--navy);">${file.filename}</div>
+          <div style="font-size:12px;color:var(--muted);">${new Date(file.uploaded_at).toLocaleString('en-IN')}</div>
+        </div>
+      `).join('')
+    : '<div style="font-size:13px;color:var(--muted);">No evidence uploaded yet.</div>';
+}
+
+async function uploadEvidenceToCase(caseId, inputId, directFile = null) {
+  const input = inputId ? document.getElementById(inputId) : null;
+  const file = directFile || input?.files?.[0];
+  if (!file) return null;
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const r = await axios.post(`${API}/api/cases/${caseId}/evidence-upload`, formData, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    uploadedEvidenceFiles = [...uploadedEvidenceFiles.filter(item => item.id !== r.data.id), r.data];
+    renderDraftEvidenceList();
+    if (input) input.value = '';
+    return r.data;
+  } catch (e) {
+    alert(e.response?.data?.detail || 'Failed to upload evidence.');
+    return null;
   }
 }
 
@@ -1190,6 +1269,7 @@ async function loadAnalysis(caseId) {
     const i    = c.intake_data    || {};
     const l    = c.legal_data     || {};
     const a    = c.analytics_data || {};
+    uploadedEvidenceFiles = c.evidence_files || [];
 
     document.getElementById('caseTitle').textContent =
       `Case #${caseId.slice(0,8).toUpperCase()}`;
@@ -1310,6 +1390,36 @@ async function loadAnalysis(caseId) {
       </div>
     </div>
 
+      <div class="card">
+        <div class="card-title">Cost Comparison</div>
+        <div style="font-size:14px;color:var(--dark);line-height:1.7;">${a.cost_comparison || 'Settlement usually saves cost and time compared with a full court case.'}</div>
+        <div class="offer-grid" style="margin-top:14px;">
+          <div class="offer-box">
+            <div class="offer-label">Court Cost</div>
+            <div class="offer-amount" style="font-size:22px;">${a.court_cost_estimate ? 'Rs. ' + Number(a.court_cost_estimate).toLocaleString('en-IN') : 'â€”'}</div>
+          </div>
+          <div class="offer-box">
+            <div class="offer-label">Platform Cost</div>
+            <div class="offer-amount" style="font-size:22px;">${a.settlement_cost ? 'Rs. ' + Number(a.settlement_cost).toLocaleString('en-IN') : 'â€”'}</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Winning Strategy</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+          <button class="btn btn-gold" onclick="generateWinningStrategy()">Generate Winning Strategy</button>
+          <label class="btn btn-outline" style="cursor:pointer;">
+            Upload More Evidence
+            <input type="file" id="caseEvidenceUpload" onchange="uploadLiveEvidence('${caseId}')" style="display:none;">
+          </label>
+        </div>
+        <div id="strategyPanel">${renderStrategy(c.strategy_data || {})}</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Live Agent Reasoning Log</div>
+        ${renderReasoningLog(c.ai_reasoning_log || [])}
+      </div>
+
       ${sendInviteBtn}
     `;
   } catch(e) {
@@ -1323,6 +1433,67 @@ function wpColor(wp) {
   if (wp >= 70) return 'var(--green)';
   if (wp >= 50) return 'var(--gold)';
   return 'var(--red)';
+}
+
+function renderStrategy(strategy) {
+  if (!strategy || Object.keys(strategy).length === 0) {
+    return '<div style="font-size:13px;color:var(--muted);">No strategy generated yet. Use the button above to create a negotiation and evidence plan.</div>';
+  }
+  return `
+    <div style="font-size:14px;color:var(--dark);line-height:1.7;margin-bottom:12px;">${strategy.recommended_positioning || ''}</div>
+    <div class="offer-grid">
+      <div class="offer-box" style="text-align:left;">
+        <div class="offer-label">What To Say</div>
+        ${(strategy.what_to_say || []).map(item => `<div style="font-size:13px;padding:2px 0;">• ${item}</div>`).join('')}
+      </div>
+      <div class="offer-box" style="text-align:left;">
+        <div class="offer-label">Evidence To Gather</div>
+        ${(strategy.evidence_to_gather || []).map(item => `<div style="font-size:13px;padding:2px 0;">• ${item}</div>`).join('')}
+      </div>
+      <div class="offer-box" style="text-align:left;">
+        <div class="offer-label">Mistakes To Avoid</div>
+        ${(strategy.mistakes_to_avoid || []).map(item => `<div style="font-size:13px;padding:2px 0;">• ${item}</div>`).join('')}
+      </div>
+      <div class="offer-box" style="text-align:left;">
+        <div class="offer-label">Court Backup Plan</div>
+        ${(strategy.court_backup_plan || []).map(item => `<div style="font-size:13px;padding:2px 0;">• ${item}</div>`).join('')}
+      </div>
+    </div>
+    <div style="margin-top:12px;font-size:13px;color:var(--muted);"><b>Best next action:</b> ${strategy.best_next_action || '—'}</div>
+  `;
+}
+
+function renderReasoningLog(logs) {
+  if (!logs || !logs.length) {
+    return '<div style="font-size:13px;color:var(--muted);">No reasoning events recorded yet.</div>';
+  }
+  return logs.slice().reverse().map(entry => `
+    <div style="padding:12px 14px;border:1px solid #E2E8F0;border-radius:14px;margin-bottom:10px;background:rgba(255,255,255,0.68);">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;">
+        <div style="font-weight:700;color:var(--navy);">${entry.title}</div>
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;">${entry.stage}</div>
+      </div>
+      <div style="font-size:13px;color:var(--dark);line-height:1.6;margin-top:6px;">${entry.detail}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px;">${new Date(entry.timestamp).toLocaleString('en-IN')}</div>
+    </div>
+  `).join('');
+}
+
+async function generateWinningStrategy() {
+  if (!currentCaseId) return;
+  try {
+    const r = await axios.post(`${API}/api/cases/${currentCaseId}/strategy`, {}, authHeaders());
+    document.getElementById('strategyPanel').innerHTML = renderStrategy(r.data);
+  } catch (e) {
+    alert(e.response?.data?.detail || 'Failed to generate strategy.');
+  }
+}
+
+async function uploadLiveEvidence(caseId) {
+  const result = await uploadEvidenceToCase(caseId, 'caseEvidenceUpload');
+  if (result) {
+    loadAnalysis(caseId);
+  }
 }
 
 function renderCriminalAdvisory(i, l) {
@@ -1457,6 +1628,36 @@ async function loadNegotiation() {
             </div>
           `;
         }
+        if (rd.ai_reasoning_breakdown) {
+          html += `
+            <div class="offer-grid" style="margin-bottom:12px;">
+              <div class="offer-box" style="text-align:left;">
+                <div class="offer-label">Amount Logic</div>
+                <div style="font-size:13px;line-height:1.6;">${rd.ai_reasoning_breakdown.amount_logic || '—'}</div>
+              </div>
+              <div class="offer-box" style="text-align:left;">
+                <div class="offer-label">Evidence Weight</div>
+                <div style="font-size:13px;line-height:1.6;">${rd.ai_reasoning_breakdown.evidence_weight || '—'}</div>
+              </div>
+              <div class="offer-box" style="text-align:left;">
+                <div class="offer-label">Court Comparison</div>
+                <div style="font-size:13px;line-height:1.6;">${rd.ai_reasoning_breakdown.court_comparison || '—'}</div>
+              </div>
+              <div class="offer-box" style="text-align:left;">
+                <div class="offer-label">Risk Snapshot</div>
+                <div style="font-size:13px;line-height:1.6;"><b>Claimant:</b> ${rd.ai_reasoning_breakdown.claimant_risk || '—'}<br><b>Respondent:</b> ${rd.ai_reasoning_breakdown.respondent_risk || '—'}</div>
+              </div>
+            </div>
+          `;
+        }
+        if ((rd.ai_reasoning_log || []).length) {
+          html += `
+            <div class="card" style="margin-bottom:12px;background:rgba(255,255,255,0.72);">
+              <div class="card-title">Mediator Reasoning Log</div>
+              ${(rd.ai_reasoning_log || []).map(step => `<div style="font-size:13px;color:var(--dark);padding:4px 0;">• ${step}</div>`).join('')}
+            </div>
+          `;
+        }
         // Decision status
         html += `
           <div class="offer-grid" style="margin:12px 0;">
@@ -1537,6 +1738,27 @@ async function loadNegotiation() {
           <div class="alert alert-success">
             Case settled for Rs. ${Number(c.settled_amount||0).toLocaleString('en-IN')}.
           </div>
+          ${ns.settlement_email_status ? `
+            <div class="offer-grid" style="margin-bottom:12px;">
+              <div class="offer-box">
+                <div class="offer-label">Claimant Email</div>
+                <div style="font-size:16px;font-weight:700;color:${ns.settlement_email_status.sent_to_claimant ? 'var(--green)' : 'var(--red)'};">
+                  ${ns.settlement_email_status.sent_to_claimant ? 'Sent' : 'Not Sent'}
+                </div>
+              </div>
+              <div class="offer-box">
+                <div class="offer-label">Respondent Email</div>
+                <div style="font-size:16px;font-weight:700;color:${ns.settlement_email_status.sent_to_respondent ? 'var(--green)' : 'var(--red)'};">
+                  ${ns.settlement_email_status.sent_to_respondent ? 'Sent' : 'Not Sent'}
+                </div>
+              </div>
+            </div>
+          ` : ''}
+          ${ns.settlement_url ? `
+            <a class="btn btn-green" href="${ns.settlement_url}" target="_blank" rel="noopener noreferrer" style="margin-bottom:12px;">
+              Download Settlement Agreement
+            </a>
+          ` : ''}
           <div style="display:flex;gap:12px;margin-top:12px;">
             <button class="btn btn-green" onclick="confirmPayment(true)">
               ✓ Payment Received

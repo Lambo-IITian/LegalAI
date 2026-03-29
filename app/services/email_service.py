@@ -61,6 +61,46 @@ class EmailService:
             )
             return False
 
+    def send_case_update(
+        self,
+        to_email: str,
+        party_name: str,
+        case_id: str,
+        headline: str,
+        summary: str,
+        portal_url: str | None = None,
+        action_label: str | None = None,
+    ) -> bool:
+        short_id = case_id[:8].upper()
+        action_block = ""
+        if portal_url and action_label:
+            action_block = f"""
+            <a href="{portal_url}"
+               style="display:block;background:#06B6D4;color:#0F2A4A;
+                      text-align:center;padding:14px;border-radius:6px;
+                      font-weight:bold;text-decoration:none;font-size:15px;margin-top:18px;">
+                {action_label}
+            </a>
+            """
+        html = f"""
+        <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;
+                    background:#0F2A4A;padding:32px;border-radius:8px;">
+            <h2 style="color:#06B6D4;">LegalAI Resolver</h2>
+            <p style="color:#E2E8F0;font-size:14px;">Dear {party_name},</p>
+            <div style="background:#1E3A6E;border-radius:8px;padding:16px;margin:16px 0;">
+                <p style="color:#93C5FD;font-size:11px;margin:0 0 6px 0;
+                           font-weight:bold;letter-spacing:1px;">CASE UPDATE</p>
+                <p style="color:#FFFFFF;font-size:18px;font-weight:bold;margin:0 0 6px 0;">{headline}</p>
+                <p style="color:#E2E8F0;font-size:13px;margin:0;line-height:1.6;">{summary}</p>
+            </div>
+            {action_block}
+            <p style="color:#475569;font-size:11px;margin-top:18px;">
+                Case Reference: {short_id}
+            </p>
+        </div>
+        """
+        return self.send(to_email, f"{headline} - Case #{short_id}", html)
+
     def send_otp(self, to_email: str, otp: str, display_name: str = "") -> bool:
         name = display_name or to_email
         html = f"""

@@ -299,20 +299,66 @@ def _disclaimer_footer() -> list:
     ]
 
 
+def _append_case_record_sections(story: list, case: dict, intake: dict, legal: dict, analytics: dict | None = None):
+    story.append(_section_heading("Full Case Record"))
+    story.append(_body_para(
+        f"Claimant: {case.get('claimant_name')} | Email: {case.get('claimant_email')} | "
+        f"Phone: {case.get('claimant_phone', 'N/A')} | City/State: {case.get('claimant_city', 'N/A')}, {case.get('claimant_state', 'N/A')}"
+    ))
+    story.append(_body_para(
+        f"Respondent: {case.get('respondent_name')} | Email: {case.get('respondent_email')} | "
+        f"Phone: {case.get('respondent_phone', 'N/A')} | Type: {case.get('respondent_type', 'N/A')}"
+    ))
+    story.append(_body_para(
+        f"Track: {case.get('track', 'N/A')} | Claim Amount: Rs. {(case.get('claim_amount') or 0):,.0f} | "
+        f"Incident Date: {case.get('incident_date') or 'Not specified'}"
+    ))
+    story.append(_section_heading("Dispute Narrative"))
+    story.append(_body_para(case.get("dispute_text", "")))
+
+    strengths = intake.get("claimant_strengths", [])
+    weaknesses = intake.get("claimant_weaknesses", [])
+    missing = intake.get("missing_proof_checklist", []) or analytics.get("missing_evidence", []) if analytics else intake.get("missing_proof_checklist", [])
+    defenses = legal.get("respondent_defenses", [])
+    if strengths:
+        story.append(_section_heading("Claimant Strengths"))
+        for item in strengths[:8]:
+            story.append(_bullet(item))
+    if weaknesses:
+        story.append(_section_heading("Claimant Weaknesses"))
+        for item in weaknesses[:8]:
+            story.append(_bullet(item))
+    if defenses:
+        story.append(_section_heading("Likely Respondent Defenses"))
+        for item in defenses[:8]:
+            story.append(_bullet(item))
+    if missing:
+        story.append(_section_heading("Missing Proof / Evidence Gaps"))
+        for item in missing[:8]:
+            story.append(_bullet(item))
+
+    evidence_files = case.get("evidence_files", [])
+    if evidence_files:
+        story.append(_section_heading("Evidence Files Uploaded"))
+        for file_info in evidence_files[:12]:
+            story.append(_bullet(f"{file_info.get('filename')} uploaded by {file_info.get('uploaded_by', 'unknown')} on {file_info.get('uploaded_at', 'unknown date')}"))
+
+
 # ══════════════════════════════════════════════════════════════
 # DOCUMENT 1 — DEMAND LETTER (Navy theme)
 # ══════════════════════════════════════════════════════════════
 
 DEMAND_LETTER_PROMPT = """
 You are a senior Indian advocate drafting a formal legal demand letter.
-Write exactly 5 paragraphs. Each paragraph must be 3-5 sentences.
+Write exactly 6 paragraphs. Each paragraph must be 3-6 sentences.
 Be formal, precise, and legally accurate.
 
 Paragraph 1: FACTS — State the factual background clearly.
-Paragraph 2: LEGAL BASIS — Cite the applicable laws and sections.
-Paragraph 3: DEMAND — State exactly what is demanded (amount/action).
-Paragraph 4: DEADLINE — Give 15 days to comply, state consequences.
-Paragraph 5: CLOSING — Formal closing with reservation of rights.
+Paragraph 2: CLAIMANT POSITION — Explain why the claimant says liability exists.
+Paragraph 3: RESPONDENT POSITION — Briefly summarize the likely defense position and why the claimant still disputes it.
+Paragraph 4: LEGAL BASIS — Cite the applicable laws and sections.
+Paragraph 5: DEMAND — State exactly what is demanded (amount/action), including important evidence and missing proof.
+Paragraph 6: DEADLINE AND CLOSING — Give 15 days to comply, state consequences, and close formally.
 
 Use formal legal English. Do not use bullet points.
 Respond ONLY in JSON:
@@ -322,6 +368,7 @@ Respond ONLY in JSON:
   "paragraph_3": "text",
   "paragraph_4": "text",
   "paragraph_5": "text",
+  "paragraph_6": "text",
   "subject_line": "Re: Legal Notice — [dispute type]"
 }
 """
@@ -393,8 +440,8 @@ Claimant rights: {legal.get('claimant_rights', [])[:3]}
     story.append(_body_para(f"Dear {case['respondent_name']},"))
     story.append(Spacer(1, 2*mm))
 
-    # 5 paragraphs
-    for i in range(1, 6):
+    # 6 paragraphs
+    for i in range(1, 7):
         para = content.get(f"paragraph_{i}", "")
         if para:
             story.append(_body_para(para))
@@ -419,6 +466,7 @@ Claimant rights: {legal.get('claimant_rights', [])[:3]}
                 f"{law.get('relevance','')[:80]}"
             ))
 
+    _append_case_record_sections(story, case, intake, legal, analytics)
     story.extend(_disclaimer_footer())
     doc.build(story)
     return buf.getvalue()
@@ -435,10 +483,18 @@ Generate a structured litigation package.
 Respond ONLY in JSON:
 {
   "case_summary": "2-3 sentence case overview for court",
+  "party_profile": {
+    "claimant_background": "who the claimant is",
+    "respondent_background": "who the respondent is",
+    "relationship_context": "how the parties are connected"
+  },
+  "chronology": ["event 1", "event 2", "event 3"],
   "plaint_averments": ["averment 1", "averment 2", ...],
   "evidence_checklist": [
     {"item": "document name", "available": true|false, "importance": "CRITICAL|HIGH|MEDIUM"}
   ],
+  "issues_in_dispute": ["issue 1", "issue 2"],
+  "respondent_defenses": ["defense 1", "defense 2"],
   "witness_list": [
     {"role": "Claimant/Witness/Expert", "relevance": "what they will testify"}
   ],
@@ -513,6 +569,22 @@ Relief available: {legal.get('relief_available', [])}
     story.append(_section_heading("Case Summary", RED))
     story.append(_body_para(content.get("case_summary", "")))
 
+    party_profile = content.get("party_profile", {})
+    if party_profile:
+        story.append(_section_heading("Party Profiles", RED))
+        if party_profile.get("claimant_background"):
+            story.append(_bullet(f"Claimant: {party_profile.get('claimant_background')}"))
+        if party_profile.get("respondent_background"):
+            story.append(_bullet(f"Respondent: {party_profile.get('respondent_background')}"))
+        if party_profile.get("relationship_context"):
+            story.append(_bullet(f"Relationship context: {party_profile.get('relationship_context')}"))
+
+    chronology = content.get("chronology", [])
+    if chronology:
+        story.append(_section_heading("Chronology", RED))
+        for i, item in enumerate(chronology[:10], 1):
+            story.append(_body_para(f"{i}. {item}"))
+
     # Analytics snapshot
     story.append(_section_heading("Case Strength Assessment", RED))
     snap_data = [
@@ -541,6 +613,18 @@ Relief available: {legal.get('relief_available', [])}
     story.append(_section_heading("Plaint Averments", RED))
     for i, av in enumerate(content.get("plaint_averments", []), 1):
         story.append(_body_para(f"{i}. {av}"))
+
+    issues = content.get("issues_in_dispute", [])
+    if issues:
+        story.append(_section_heading("Issues In Dispute", RED))
+        for item in issues[:10]:
+            story.append(_bullet(item))
+
+    defense_points = content.get("respondent_defenses", [])
+    if defense_points:
+        story.append(_section_heading("Respondent Defenses", RED))
+        for item in defense_points[:10]:
+            story.append(_bullet(item))
 
     # Evidence checklist
     story.append(_section_heading("Evidence Checklist", RED))
@@ -607,6 +691,7 @@ Relief available: {legal.get('relief_available', [])}
                 f"[{law.get('strength','SUPPORTING')}]: {law.get('relevance','')[:80]}"
             ))
 
+    _append_case_record_sections(story, case, intake, legal, analytics)
     story.extend(_disclaimer_footer())
     doc.build(story)
     return buf.getvalue()
@@ -618,18 +703,20 @@ Relief available: {legal.get('relief_available', [])}
 
 SETTLEMENT_PROMPT = """
 You are a senior Indian advocate drafting a formal settlement agreement.
-Generate exactly 9 numbered clauses.
+Generate exactly 11 numbered clauses.
 
 CLAUSE STRUCTURE:
 1. Recitals — background and context
 2. Definitions — define key terms
-3. Settlement Amount/Actions — exact terms agreed
-4. Payment Terms — how and when payment will be made (monetary cases)
-5. Full and Final Release — claimant releases all claims
-6. Confidentiality — neither party to disclose terms
-7. Non-Disparagement — neither party to make negative statements
-8. Representations and Warranties — each party confirms capacity to settle
-9. Governing Law and Dispute Resolution — governing law, jurisdiction
+3. Statement of Facts and Disputed Issues — summarize both positions respectfully
+4. Settlement Amount/Actions — exact terms agreed
+5. Payment Terms — how and when payment will be made (monetary cases)
+6. Full and Final Release — claimant releases all claims
+7. Confidentiality — neither party to disclose terms
+8. Non-Disparagement — neither party to make negative statements
+9. Representations and Warranties — each party confirms capacity to settle
+10. Evidence and Record Integrity — what documents and communications informed the settlement
+11. Breach, Governing Law and Dispute Resolution — governing law, jurisdiction, and default consequences
 
 Respond ONLY in JSON:
 {
@@ -638,20 +725,24 @@ Respond ONLY in JSON:
   "clause_1_text": "text",
   "clause_2_title": "Definitions",
   "clause_2_text": "text",
-  "clause_3_title": "Settlement Terms",
+  "clause_3_title": "Statement of Facts and Disputed Issues",
   "clause_3_text": "text",
-  "clause_4_title": "Payment Terms",
+  "clause_4_title": "Settlement Terms",
   "clause_4_text": "text",
-  "clause_5_title": "Full and Final Release",
+  "clause_5_title": "Payment Terms",
   "clause_5_text": "text",
-  "clause_6_title": "Confidentiality",
+  "clause_6_title": "Full and Final Release",
   "clause_6_text": "text",
-  "clause_7_title": "Non-Disparagement",
+  "clause_7_title": "Confidentiality",
   "clause_7_text": "text",
-  "clause_8_title": "Representations and Warranties",
+  "clause_8_title": "Non-Disparagement",
   "clause_8_text": "text",
-  "clause_9_title": "Governing Law",
-  "clause_9_text": "text"
+  "clause_9_title": "Representations and Warranties",
+  "clause_9_text": "text",
+  "clause_10_title": "Evidence and Record Integrity",
+  "clause_10_text": "text",
+  "clause_11_title": "Breach, Governing Law and Dispute Resolution",
+  "clause_11_text": "text"
 }
 """
 
@@ -687,9 +778,12 @@ Key issues resolved: {legal.get('key_legal_issues', [])}
         )
     except Exception:
         # Basic fallback clauses
-        content = {f"clause_{i}_title": f"Clause {i}" for i in range(1, 10)}
-        content.update({f"clause_{i}_text": "To be filled." for i in range(1, 10)})
+        content = {f"clause_{i}_title": f"Clause {i}" for i in range(1, 12)}
+        content.update({f"clause_{i}_text": "To be filled." for i in range(1, 12)})
         content["clause_3_text"] = (
+            "This agreement records the dispute background, both parties' positions, and the issues they now agree to resolve by settlement."
+        )
+        content["clause_4_text"] = (
             f"The Respondent agrees to pay Rs. {settled_amount:,.0f} "
             f"to the Claimant in full and final settlement of all claims."
         )
@@ -736,8 +830,10 @@ Key issues resolved: {legal.get('key_legal_issues', [])}
     ))
     story.append(Spacer(1, 3*mm))
 
-    # 9 clauses
-    for i in range(1, 10):
+    _append_case_record_sections(story, case, intake, legal, case.get("analytics_data", {}))
+
+    # 11 clauses
+    for i in range(1, 12):
         title = content.get(f"clause_{i}_title", f"Clause {i}")
         text  = content.get(f"clause_{i}_text", "")
         if text:

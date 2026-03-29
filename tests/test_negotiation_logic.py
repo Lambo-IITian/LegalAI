@@ -1,7 +1,8 @@
 import unittest
 
-from app.models.case import CaseStatus
-from app.models.negotiation import ProposalDecision
+from app.agents.negotiation_agent import _fallback_proposal
+from app.models.case import CaseStatus, VALID_TRANSITIONS
+from app.models.negotiation import ProposalDecision, SubmitOfferRequest
 from app.core.negotiation_rules import check_direct_settlement, next_waiting_state, resolve_round_outcome
 
 
@@ -80,6 +81,25 @@ class NegotiationLogicTests(unittest.TestCase):
             rejection_reason="",
         )
         self.assertEqual(outcome, "SETTLED")
+
+    def test_waiting_states_can_progress_to_settling(self):
+        self.assertIn(CaseStatus.SETTLING, VALID_TRANSITIONS[CaseStatus.WAITING_FOR_CLAIMANT])
+        self.assertIn(CaseStatus.SETTLING, VALID_TRANSITIONS[CaseStatus.WAITING_FOR_RESPONDENT])
+
+    def test_negotiation_fallback_includes_reasoning_breakdown_and_log(self):
+        proposal = _fallback_proposal(
+            case={"track": "monetary_civil"},
+            round_number=2,
+            claimant_offer=50000,
+            respondent_offer=30000,
+        )
+        self.assertIn("reasoning_breakdown", proposal)
+        self.assertIn("live_reasoning_log", proposal)
+        self.assertTrue(proposal["live_reasoning_log"])
+
+    def test_submit_offer_request_defaults_round_number(self):
+        body = SubmitOfferRequest(case_id="case_1", offer_amount=25000)
+        self.assertEqual(body.round_number, 1)
 
 
 if __name__ == "__main__":

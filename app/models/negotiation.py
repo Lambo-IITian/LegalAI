@@ -86,7 +86,7 @@ class NegotiationDocument(BaseModel):
 
 class SubmitOfferRequest(BaseModel):
     case_id: str
-    round_number: int
+    round_number: int = 1
     offer_amount: Optional[float] = None
     demands: Optional[list[str]] = None
     commitments: Optional[list[str]] = None

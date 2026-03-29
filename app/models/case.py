@@ -177,11 +177,14 @@ class CaseDocument(BaseModel):
     claim_amount: Optional[float] = None
     currency: str = "INR"
     evidence_file_ids: list[str] = []
+    evidence_files: list[dict] = []
 
     intake_data: Optional[dict] = None
     legal_data: Optional[dict] = None
     analytics_data: Optional[dict] = None
     documents_data: Optional[dict] = None
+    strategy_data: Optional[dict] = None
+    ai_reasoning_log: list[dict] = []
 
     current_round: int = 0
     max_rounds: int = 3
@@ -191,6 +194,7 @@ class CaseDocument(BaseModel):
     action_required_by: Optional[str] = None
     direct_settlement_amount: Optional[float] = None
     direct_settlement_reason: Optional[str] = None
+    settlement_email_status: Optional[dict] = None
 
     current_deadline: Optional[str] = None
     invite_deadline: Optional[str] = None

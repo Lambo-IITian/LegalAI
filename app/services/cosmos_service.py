@@ -133,6 +133,28 @@ class CosmosService:
     def set_settlement_honored(self, case_id: str, honored: bool) -> dict:
         return self.update_case(case_id, {"settlement_honored": honored})
 
+    def append_case_reasoning_log(
+        self,
+        case_id: str,
+        stage: str,
+        title: str,
+        detail: str,
+        metadata: Optional[dict] = None,
+    ) -> dict:
+        case = self.get_case(case_id)
+        if not case:
+            raise ValueError(f"Case {case_id} not found")
+        logs = case.get("ai_reasoning_log", [])
+        logs.append({
+            "id": self._new_id(),
+            "timestamp": self._now(),
+            "stage": stage,
+            "title": title,
+            "detail": detail,
+            "metadata": metadata or {},
+        })
+        return self.update_case(case_id, {"ai_reasoning_log": logs})
+
     # ── Users ─────────────────────────────────────────────────
 
     def get_user_by_email(self, email: str) -> Optional[dict]:
