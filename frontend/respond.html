@@ -669,15 +669,42 @@ async function submitDecision(decision) {
       case_id: caseId, email: respondentEmail, decision,
       reason: decision === 'REJECT' ? prompt('Optional: why are you rejecting? Mention missing proof if relevant.') || '' : ''
     });
-    const msg = decision === 'ACCEPT'
-      ? (response.data?.settlement_url
-        ? 'You accepted the proposal. The case is now settled and the agreement is ready.'
-        : 'You accepted the proposal. Waiting for the claimant.')
-      : 'You rejected the proposal. The next round will begin shortly.';
-    showSuccess(decision === 'ACCEPT' ? 'Accepted' : 'Rejected', msg);
+    if (response.data?.outcome === 'SETTLED' || response.data?.status === 'SETTLED') {
+      showSuccess('Accepted', 'The case is now settled and the agreement is ready.');
+      return;
+    }
+    if (response.data?.outcome === 'NEXT_ROUND') {
+      alert(response.data?.message || `Round ${response.data?.next_round || 2} is now open.`);
+      await refreshRespondentCase();
+      return;
+    }
+    if (response.data?.outcome === 'PROOF_REQUESTED') {
+      alert(response.data?.message || 'The case has moved to proof exchange.');
+      await refreshRespondentCase();
+      return;
+    }
+    if (response.data?.outcome === 'ESCALATED') {
+      showSuccess('Escalated', response.data?.message || 'The case has been escalated.');
+      return;
+    }
+    alert(
+      decision === 'ACCEPT'
+        ? 'You accepted the proposal. Waiting for the claimant.'
+        : 'Your decision was recorded.'
+    );
+    await refreshRespondentCase();
   } catch(e) {
     alert(e.response?.data?.detail || 'Failed to submit decision.');
   }
+}
+
+async function refreshRespondentCase() {
+  const r = await axios.get(
+    `${API}/api/respondent/case/${caseId}?email=${encodeURIComponent(respondentEmail)}`
+  );
+  caseData = r.data;
+  renderCase();
+  showScreen('screenCase');
 }
 
 async function disputeFacts() {

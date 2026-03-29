@@ -650,11 +650,23 @@ async def proposal_response(
             return {"message": "Proposal decision recorded. Case has moved into proof exchange.", "outcome": "PROOF_REQUESTED", "status": updated_case["status"]}
 
         if outcome == "ESCALATED":
-            background_tasks.add_task(_handle_escalation, body.case_id)
-            return {"message": "Maximum rounds reached without settlement. Escalation has started.", "outcome": "ESCALATED"}
+            await _handle_escalation(body.case_id)
+            refreshed_case = cosmos_service.get_case(body.case_id)
+            return {
+                "message": "Maximum rounds reached without settlement. Escalation has started.",
+                "outcome": "ESCALATED",
+                "status": refreshed_case["status"],
+            }
 
-        background_tasks.add_task(_start_next_round, body.case_id, body.round_number + 1)
-        return {"message": f"Proposal rejected. Round {body.round_number + 1} is now open.", "outcome": "NEXT_ROUND", "next_round": body.round_number + 1}
+        await _start_next_round(body.case_id, body.round_number + 1)
+        refreshed_case = cosmos_service.get_case(body.case_id)
+        return {
+            "message": f"Proposal rejected. Round {body.round_number + 1} is now open.",
+            "outcome": "NEXT_ROUND",
+            "next_round": body.round_number + 1,
+            "status": refreshed_case["status"],
+            "action_required_by": refreshed_case.get("action_required_by"),
+        }
 
     waiting_on = "claimant" if claimant_decision == ProposalDecision.PENDING.value else "respondent"
     waiting_state = CaseStatus.WAITING_FOR_CLAIMANT if waiting_on == "claimant" else CaseStatus.WAITING_FOR_RESPONDENT
