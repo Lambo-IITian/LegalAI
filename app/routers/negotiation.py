@@ -140,8 +140,15 @@ def _get_or_create_round(neg: dict, round_number: int) -> dict:
 
 
 def _resolve_round_number(case: dict, requested: int | None) -> int:
-    """Always derive round number from the case document, not the request body."""
-    return case.get("current_round") or requested or 1
+    """
+    Always derive round number from the case document.
+    Falls back to requested, then defaults to 1.
+    Note: current_round=0 means no round started yet, so we use requested or 1.
+    """
+    current = case.get("current_round")
+    if current and current > 0:
+        return current
+    return requested or 1
 
 
 # ─────────────────────────────────────────────────────────────
@@ -169,9 +176,9 @@ async def _handle_offer_submission(
     round_number = round_doc["round_number"]
 
     # Record this party's offer
-    round_doc[party]["amount"]      = body.offer_amount
-    round_doc[party]["actions"]     = body.demands or body.commitments or []
-    round_doc[party]["explanation"] = body.explanation
+    round_doc[party]["amount"]       = body.offer_amount
+    round_doc[party]["actions"]      = body.demands or body.commitments or []
+    round_doc[party]["explanation"]  = body.explanation
     round_doc[party]["submitted_at"] = _now()
 
     cosmos_service.upsert_round_in_negotiation(neg["id"], round_number, round_doc)
@@ -179,8 +186,12 @@ async def _handle_offer_submission(
 
     # Re-read to get latest state of both sides
     round_doc = cosmos_service.get_round(neg["id"], round_number)
-    claimant_done   = bool(round_doc["claimant"]["submitted_at"])
-    respondent_done = bool(round_doc["respondent"]["submitted_at"])
+    if not round_doc:
+        logger.error(f"Round {round_number} not found after upsert | case_id={case['id']}")
+        raise HTTPException(status_code=500, detail="Round data lost after save. Please retry.")
+
+    claimant_done   = bool(round_doc["claimant"].get("submitted_at"))
+    respondent_done = bool(round_doc["respondent"].get("submitted_at"))
 
     if claimant_done and respondent_done:
         # Both offers in — trigger AI mediation
@@ -235,7 +246,7 @@ async def _handle_offer_submission(
             headline=f"Round {round_number}: Respondent has submitted their offer",
             summary=(
                 f"{case['respondent_name']} has submitted their Round {round_number} offer. "
-                "Please login and submit your Round {round_number} offer to trigger "
+                f"Please login and submit your Round {round_number} offer to trigger "
                 "AI mediation."
             ),
             portal_url=settings.BASE_URL,
@@ -338,8 +349,12 @@ async def _run_mediation(case_id: str, neg_id: str, round_number: int):
         from app.agents.negotiation_agent import run_negotiation_agent
 
         case      = cosmos_service.get_case(case_id)
-        neg       = cosmos_service.negotiations.read_item(item=neg_id, partition_key=neg_id)
+        neg       = cosmos_service.get_negotiation_by_case(case_id)
         round_doc = cosmos_service.get_round(neg_id, round_number)
+
+        if not neg:
+            logger.error(f"Mediation: negotiation not found | case_id={case_id}")
+            return
 
         if not round_doc:
             logger.error(f"Mediation: round {round_number} not found | case_id={case_id}")
@@ -378,8 +393,8 @@ async def _run_mediation(case_id: str, neg_id: str, round_number: int):
             {"current_round": round_number, "action_required_by": None},
         )
 
-        proposed_amount = proposal.get("proposed_amount", 0) or 0
-        reasoning       = proposal.get("reasoning", "")
+        proposed_amount = proposal.get("proposed_amount") or 0
+        reasoning       = proposal.get("reasoning") or ""
         portal          = _portal_url(case_id)
 
         # EMAIL both parties with the proposal
@@ -429,18 +444,26 @@ async def proposal_response(
     if not case:
         raise CaseNotFound(body.case_id)
 
-    if case["status"] != CaseStatus.PROPOSAL_ISSUED.value:
+    # Valid states: proposal is issued, or one party is waiting after already deciding
+    valid_proposal_states = {
+        CaseStatus.PROPOSAL_ISSUED.value,
+        CaseStatus.WAITING_FOR_CLAIMANT.value,
+        CaseStatus.WAITING_FOR_RESPONDENT.value,
+    }
+    if case["status"] not in valid_proposal_states:
         raise HTTPException(
             status_code=409,
             detail=f"No active proposal. Case status: {case['status']}",
         )
 
-    # Auth: claimant must be logged in; respondent has no auth (party="respondent")
+    # Validate party
+    if body.party not in ("claimant", "respondent"):
+        raise HTTPException(status_code=400, detail="party must be 'claimant' or 'respondent'")
+
+    # Auth: claimant must be logged in; respondent has no auth
     if body.party == "claimant":
         if current_user and current_user["email"] != case["claimant_email"]:
             raise UnauthorizedAccess()
-    elif body.party != "respondent":
-        raise HTTPException(status_code=400, detail="party must be 'claimant' or 'respondent'")
 
     neg = cosmos_service.get_negotiation_by_case(body.case_id)
     if not neg:
@@ -450,6 +473,21 @@ async def proposal_response(
     round_doc    = cosmos_service.get_round(neg["id"], round_number)
     if not round_doc:
         raise HTTPException(status_code=404, detail=f"Round {round_number} not found.")
+
+    # Guard: make sure a proposal was actually issued for this round
+    if not round_doc.get("proposal_issued_at"):
+        raise HTTPException(
+            status_code=409,
+            detail="The AI proposal for this round has not been issued yet. Please wait.",
+        )
+
+    # Guard: don't allow double-submission from same party
+    current_decision = round_doc[body.party].get("decision", ProposalDecision.PENDING.value)
+    if current_decision != ProposalDecision.PENDING.value:
+        return {
+            "message":       f"You have already submitted your decision: {current_decision}",
+            "your_decision": current_decision,
+        }
 
     # Record decision
     round_doc[body.party]["decision"]   = body.decision.value
@@ -491,7 +529,7 @@ async def proposal_response(
                     "next_round": next_round,
                 }
 
-    # Only one party decided so far
+    # Only one party decided so far — wait for the other
     waiting = "claimant" if cl_decision == ProposalDecision.PENDING.value else "respondent"
     waiting_status = (
         CaseStatus.WAITING_FOR_CLAIMANT
@@ -504,7 +542,7 @@ async def proposal_response(
         {"current_round": round_number, "action_required_by": waiting},
     )
     return {
-        "message":      "Your decision recorded. Waiting for the other party.",
+        "message":       "Your decision recorded. Waiting for the other party.",
         "your_decision": body.decision.value,
     }
 
@@ -525,12 +563,16 @@ async def _handle_settlement(case_id: str):
         case         = cosmos_service.get_case(case_id)
         neg          = cosmos_service.get_negotiation_by_case(case_id)
         round_number = case.get("current_round", 1)
-        round_doc    = cosmos_service.get_round(neg["id"], round_number)
-        settled_amount = (
-            round_doc.get("settlement_candidate_amount") or
-            round_doc.get("ai_proposed_amount") or 0
-            if round_doc else 0
-        )
+        round_doc    = cosmos_service.get_round(neg["id"], round_number) if neg else None
+
+        if round_doc:
+            settled_amount = (
+                round_doc.get("settlement_candidate_amount") or
+                round_doc.get("ai_proposed_amount") or
+                0
+            )
+        else:
+            settled_amount = case.get("claim_amount") or 0
 
         cosmos_service.transition_case(
             case_id,
@@ -544,9 +586,9 @@ async def _handle_settlement(case_id: str):
             case_id,
             CaseStatus.SETTLED,
             {
-                "settlement_url":  settlement_url,
-                "settled_amount":  settled_amount,
-                "settled_at":      _now(),
+                "settlement_url":     settlement_url,
+                "settled_amount":     settled_amount,
+                "settled_at":         _now(),
                 "action_required_by": None,
             },
         )
@@ -762,8 +804,8 @@ async def proof_response(
     cosmos_service.update_negotiation(refreshed_neg["id"], {"current_waiting_on": waiting})
 
     return {
-        "message":          "Proof response recorded and shared with the other party.",
-        "status":           waiting_status.value,
+        "message":            "Proof response recorded and shared with the other party.",
+        "status":             waiting_status.value,
         "action_required_by": waiting,
     }
 
@@ -781,8 +823,9 @@ async def get_negotiation_status(
     if not case:
         raise CaseNotFound(case_id)
 
-    # Claimant gets full view; respondent-side access uses the respondent router
-    if current_user and current_user.get("email") != case.get("claimant_email"):
+    # Only authenticated claimants get the full negotiation status via this endpoint.
+    # Respondents use the respondent router's GET /case/{case_id}.
+    if current_user is not None and current_user.get("email") != case.get("claimant_email"):
         raise UnauthorizedAccess()
 
     neg          = cosmos_service.get_negotiation_by_case(case_id)
