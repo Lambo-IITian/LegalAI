@@ -54,6 +54,7 @@ VALID_TRANSITIONS = {
         CaseStatus.AUTO_ESCALATED,
     ],
     CaseStatus.WAITING_FOR_CLAIMANT: [
+        CaseStatus.NEGOTIATION_OPEN,
         CaseStatus.WAITING_FOR_RESPONDENT,
         CaseStatus.PROOF_REQUESTED,
         CaseStatus.PROOF_RESPONSE_PENDING,
@@ -64,6 +65,7 @@ VALID_TRANSITIONS = {
         CaseStatus.AUTO_ESCALATED,
     ],
     CaseStatus.WAITING_FOR_RESPONDENT: [
+        CaseStatus.NEGOTIATION_OPEN,
         CaseStatus.WAITING_FOR_CLAIMANT,
         CaseStatus.PROOF_REQUESTED,
         CaseStatus.PROOF_RESPONSE_PENDING,
