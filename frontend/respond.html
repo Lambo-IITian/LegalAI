@@ -647,7 +647,12 @@ async function submitOffer() {
     });
     showSuccess('Offer Submitted', `Your offer has been recorded for Round ${roundNum}. The AI Mediator will generate a settlement proposal once both offers are received.`);
   } catch(e) {
-    alert(e.response?.data?.detail || 'Failed to submit offer.');
+    alert(
+      e.response?.data?.detail
+      || e.response?.data?.message
+      || e.message
+      || 'Failed to submit offer.'
+    );
   }
 }
 

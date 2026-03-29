@@ -1,6 +1,7 @@
 import logging
 from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel
+from app.config import settings
 from app.core.security import (
     generate_otp,
     create_access_token,
@@ -19,8 +20,6 @@ from app.core.disclaimer import (
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-
-# ── Request / Response Models ─────────────────────────────────
 
 class OTPRequest(BaseModel):
     email:        str
@@ -43,83 +42,74 @@ class TokenResponse(BaseModel):
     user:         dict
 
 
-# ── Endpoints ────────────────────────────────────────────────
-
 @router.post("/request-otp")
 async def request_otp(body: OTPRequest):
     """
-    Step 1 of login/registration.
-    Generates a 6-digit OTP, stores in Cosmos, sends via SendGrid email.
-    Works identically for new and existing users.
+    Step 1 of login. Generates OTP, stores in Cosmos, sends via SendGrid.
+
+    DEV MODE FALLBACK: If email send fails in development, OTP is printed
+    to the server console so testing can continue without email service.
     """
     email      = body.email.strip().lower()
     otp        = generate_otp()
     expires_at = get_otp_expiry()
 
-    # Store OTP in Cosmos (overwrites any previous OTP for this email)
     cosmos_service.save_otp(email, otp, expires_at)
 
-    # Get display name — use existing if returning user
     existing = cosmos_service.get_user_by_email(email)
-    name     = (
+    name = (
         body.display_name
         or (existing.get("display_name") if existing else None)
         or email
     )
 
     sent = email_service.send_otp(email, otp, name)
+
     if not sent:
+        if settings.ENVIRONMENT == "development":
+            logger.warning(
+                "\n" + "=" * 52 +
+                "\n  EMAIL SEND FAILED — DEV MODE FALLBACK" +
+                f"\n  OTP for {email}: {otp}" +
+                f"\n  (valid for {settings.OTP_EXPIRE_MINUTES} minutes)" +
+                "\n" + "=" * 52
+            )
+            return {
+                "message":      "OTP generated (email failed in dev mode). Check the server console.",
+                "email":        email,
+                "dev_mode":     True,
+                "email_failed": True,
+            }
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Failed to send OTP email. Please try again in a moment.",
         )
 
     logger.info(f"OTP sent | email={email}")
-
-    return {
-        "message": "OTP sent to your email. Valid for 10 minutes.",
-        "email": email,
-    }
+    return {"message": "OTP sent to your email. Valid for 10 minutes.", "email": email}
 
 
 @router.post("/verify-otp", response_model=TokenResponse)
 async def verify_otp(body: OTPVerify):
-    """
-    Step 2 of login/registration.
-    Verifies OTP, creates/updates user record, issues JWT.
-    """
+    """Step 2 of login. Verifies OTP, upserts user, issues JWT."""
+    from datetime import datetime, timezone
+
     email = body.email.strip().lower()
 
-    # Fetch stored OTP
     otp_record = cosmos_service.get_otp(email)
     if not otp_record:
-        raise HTTPException(
-            status_code=400,
-            detail="OTP not found or already used. Request a new OTP.",
-        )
+        raise HTTPException(status_code=400, detail="OTP not found or already used. Request a new OTP.")
 
-    # Check expiry
     if is_otp_expired(otp_record["expires_at"]):
         cosmos_service.delete_otp(email)
-        raise HTTPException(
-            status_code=400,
-            detail="OTP has expired. Please request a new one.",
-        )
+        raise HTTPException(status_code=400, detail="OTP has expired. Please request a new one.")
 
-    # Check match
     if otp_record["otp"] != body.otp.strip():
-        raise HTTPException(
-            status_code=400,
-            detail="Incorrect OTP. Please check and try again.",
-        )
+        raise HTTPException(status_code=400, detail="Incorrect OTP. Please check and try again.")
 
-    # Delete OTP immediately — one-time use only
     cosmos_service.delete_otp(email)
 
-    # Build user data to upsert
-    from datetime import datetime, timezone
     user_data: dict = {"email": email}
-
     if body.display_name:
         user_data["display_name"] = body.display_name
     if body.phone:
@@ -129,16 +119,13 @@ async def verify_otp(body: OTPVerify):
     if body.state:
         user_data["state"] = body.state.strip()
     if body.consent:
-        user_data["consent_given"]         = True
-        user_data["consent_given_at"]      = datetime.now(timezone.utc).isoformat()
+        user_data["consent_given"]           = True
+        user_data["consent_given_at"]        = datetime.now(timezone.utc).isoformat()
         user_data["disclaimer_acknowledged"] = True
 
-    # Ensure display_name always has a value
     existing = cosmos_service.get_user_by_email(email)
     if not user_data.get("display_name"):
-        user_data["display_name"] = (
-            existing.get("display_name") if existing else email
-        )
+        user_data["display_name"] = existing.get("display_name") if existing else email
 
     user  = cosmos_service.upsert_user(user_data)
     token = create_access_token({"sub": email})
@@ -149,10 +136,6 @@ async def verify_otp(body: OTPVerify):
 
 @router.get("/me")
 async def get_me(current_user: dict = Depends(get_current_user)):
-    """
-    Returns the logged-in user's profile.
-    Protected — requires valid JWT in Authorization header.
-    """
     return {
         "id":                      current_user.get("id"),
         "email":                   current_user.get("email"),
