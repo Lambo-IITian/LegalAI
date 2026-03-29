@@ -42,10 +42,19 @@ async def _handle_expired_case(case: dict):
         elif status == CaseStatus.RESPONDENT_VIEWED.value:
             await _expire_respondent_viewed(case_id, case)
 
-        elif status == CaseStatus.ROUND_PENDING.value:
+        elif status in {
+            CaseStatus.NEGOTIATION_OPEN.value,
+            CaseStatus.WAITING_FOR_CLAIMANT.value,
+            CaseStatus.WAITING_FOR_RESPONDENT.value,
+            CaseStatus.PROOF_REQUESTED.value,
+            CaseStatus.PROOF_RESPONSE_PENDING.value,
+        }:
             await _expire_round_pending(case_id, case)
 
-        elif status == CaseStatus.PROPOSAL_ISSUED.value:
+        elif status in {
+            CaseStatus.PROPOSAL_ISSUED.value,
+            CaseStatus.SETTLEMENT_PENDING_CONFIRMATION.value,
+        }:
             await _expire_proposal_issued(case_id, case)
 
         elif status == CaseStatus.SETTLING.value:
@@ -146,13 +155,13 @@ async def _expire_respondent_viewed(case_id: str, case: dict):
 
 async def _expire_round_pending(case_id: str, case: dict):
     """
-    ROUND_PENDING expired (3 days) — one or both parties did not submit offers.
-    Treat the missing offer as Rs. 0 (respondent) or full claim (claimant).
-    Then trigger mediation anyway.
+    Waiting/proof state expired (3 days).
+    If both sides have already submitted numbers, trigger mediation.
+    Otherwise auto-escalate for non-participation or stale proof exchange.
     """
     neg = cosmos_service.get_negotiation_by_case(case_id)
     if not neg:
-        logger.warning(f"ROUND_PENDING expired but no negotiation found | case_id={case_id}")
+        logger.warning(f"Negotiation wait state expired but no negotiation found | case_id={case_id}")
         return
 
     round_number  = case.get("current_round", 1)
@@ -161,32 +170,20 @@ async def _expire_round_pending(case_id: str, case: dict):
     if not current_round:
         return
 
-    now      = datetime.now(timezone.utc).isoformat()
-    updates  = {}
+    claimant_submitted = bool((current_round.get("claimant") or {}).get("submitted_at"))
+    respondent_submitted = bool((current_round.get("respondent") or {}).get("submitted_at"))
+    if claimant_submitted and respondent_submitted:
+        from app.routers.negotiation import _run_mediation
+        await _run_mediation(case_id, neg["id"], round_number)
+        return
 
-    # Fill missing claimant offer with original claim
-    if current_round.get("claimant_offer") is None and not current_round.get("claimant_demands"):
-        updates["claimant_offer"]   = case.get("claim_amount", 0)
-        updates["claimant_offer_at"] = now
-        logger.info(f"Filled missing claimant offer | case_id={case_id}")
-
-    # Fill missing respondent offer with 0
-    if current_round.get("respondent_offer") is None and not current_round.get("respondent_commitments"):
-        updates["respondent_offer"]   = 0
-        updates["respondent_offer_at"] = now
-        logger.info(f"Filled missing respondent offer | case_id={case_id}")
-
-    if updates:
-        cosmos_service.update_round_in_negotiation(neg["id"], round_number, updates)
-
-    # Trigger mediation with whatever offers are present
-    from app.routers.negotiation import _run_mediation
-    await _run_mediation(case_id, neg["id"], round_number)
+    from app.routers.negotiation import _handle_escalation
+    await _handle_escalation(case_id)
 
 
 async def _expire_proposal_issued(case_id: str, case: dict):
     """
-    PROPOSAL_ISSUED expired (2 days) — one or both parties did not decide.
+    Proposal/settlement confirmation expired (2 days) — one or both parties did not decide.
     Treat missing decision as REJECT.
     """
     neg = cosmos_service.get_negotiation_by_case(case_id)
@@ -203,14 +200,19 @@ async def _expire_proposal_issued(case_id: str, case: dict):
     now     = datetime.now(timezone.utc).isoformat()
     updates = {}
 
-    if current_round.get("claimant_decision") == ProposalDecision.PENDING.value:
-        updates["claimant_decision"]  = ProposalDecision.REJECT.value
-        updates["claimant_decided_at"] = now
+    claimant_state = current_round.get("claimant") or {}
+    respondent_state = current_round.get("respondent") or {}
+
+    if claimant_state.get("decision") == ProposalDecision.PENDING.value:
+        claimant_state["decision"] = ProposalDecision.REJECT.value
+        claimant_state["decided_at"] = now
+        updates["claimant"] = claimant_state
         logger.info(f"Auto-rejected claimant | case_id={case_id} | reason=timeout")
 
-    if current_round.get("respondent_decision") == ProposalDecision.PENDING.value:
-        updates["respondent_decision"]  = ProposalDecision.REJECT.value
-        updates["respondent_decided_at"] = now
+    if respondent_state.get("decision") == ProposalDecision.PENDING.value:
+        respondent_state["decision"] = ProposalDecision.REJECT.value
+        respondent_state["decided_at"] = now
+        updates["respondent"] = respondent_state
         logger.info(f"Auto-rejected respondent | case_id={case_id} | reason=timeout")
 
     if updates:

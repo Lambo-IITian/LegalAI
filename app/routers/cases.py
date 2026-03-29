@@ -556,9 +556,11 @@ async def get_case_timeline(
 
     # Invite sent
     if case["status"] in [
-        "INVITE_SENT", "RESPONDENT_VIEWED", "NEGOTIATING",
-        "ROUND_PENDING", "PROPOSAL_ISSUED", "SETTLING",
-        "SETTLED", "ESCALATING", "ESCALATED",
+        "INVITE_SENT", "RESPONDENT_VIEWED", "NEGOTIATION_OPEN",
+        "WAITING_FOR_CLAIMANT", "WAITING_FOR_RESPONDENT", "PROOF_REQUESTED",
+        "PROOF_RESPONSE_PENDING", "MEDIATOR_REVIEW", "PROPOSAL_ISSUED",
+        "SETTLEMENT_PENDING_CONFIRMATION", "SETTLING", "SETTLED",
+        "ESCALATING", "ESCALATED",
     ]:
         events.append({
             "timestamp": None,
@@ -569,17 +571,25 @@ async def get_case_timeline(
     # Negotiation rounds
     for r in rounds:
         rn = r["round_number"]
-        if r.get("claimant_offer_at"):
+        claimant_state = r.get("claimant") or {}
+        respondent_state = r.get("respondent") or {}
+        if claimant_state.get("submitted_at"):
             events.append({
-                "timestamp": r["claimant_offer_at"],
+                "timestamp": claimant_state["submitted_at"],
                 "event":     f"ROUND_{rn}_CLAIMANT_OFFER",
                 "label":     f"Round {rn}: Claimant submitted offer",
             })
-        if r.get("respondent_offer_at"):
+        if respondent_state.get("submitted_at"):
             events.append({
-                "timestamp": r["respondent_offer_at"],
+                "timestamp": respondent_state["submitted_at"],
                 "event":     f"ROUND_{rn}_RESPONDENT_OFFER",
                 "label":     f"Round {rn}: Respondent submitted offer",
+            })
+        for proof_id in r.get("unresolved_proof_request_ids", []):
+            events.append({
+                "timestamp": None,
+                "event": f"ROUND_{rn}_PROOF_REQUEST",
+                "label": f"Round {rn}: Proof request opened ({proof_id[:8]})",
             })
         if r.get("proposal_issued_at"):
             events.append({

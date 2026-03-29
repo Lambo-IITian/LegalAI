@@ -7,44 +7,60 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.2/axios.min.js"></script>
 <style>
   :root {
-    --navy:#0F2A4A; --blue:#1565C0; --cyan:#06B6D4;
-    --green:#16A34A; --red:#DC2626; --gold:#D97706;
-    --dark:#1E293B; --muted:#64748B; --lgrey:#F1F5F9; --white:#fff;
+    --navy:#0b1f3a; --blue:#1859b8; --cyan:#13b8c8;
+    --green:#14804a; --red:#c53b31; --gold:#b88619;
+    --dark:#142033; --muted:#61748f; --lgrey:#eef3f9; --white:#fff;
+    --line:rgba(15,42,74,0.10); --shadow:0 18px 50px rgba(13,29,55,0.10);
+    --shadow-strong:0 24px 70px rgba(13,29,55,0.16);
   }
   * { box-sizing:border-box; margin:0; padding:0; }
-  body { font-family:'Segoe UI',Arial,sans-serif; background:var(--lgrey); color:var(--dark); }
-  nav {
-    background:var(--navy); padding:0 24px; height:56px;
-    display:flex; align-items:center; justify-content:space-between;
-    border-bottom:2px solid var(--red);
+  body {
+    font-family:Aptos, "Trebuchet MS", "Segoe UI", sans-serif;
+    background:
+      radial-gradient(circle at top left, rgba(19,184,200,0.16), transparent 28%),
+      radial-gradient(circle at 88% 12%, rgba(197,59,49,0.10), transparent 20%),
+      linear-gradient(180deg, #f6f8fc 0%, #ecf1f8 52%, #f8fafc 100%);
+    color:var(--dark);
+    min-height:100vh;
   }
-  .nav-brand { color:var(--cyan); font-size:18px; font-weight:700; }
+  nav {
+    background:linear-gradient(135deg, rgba(11,31,58,0.96), rgba(24,89,184,0.88));
+    backdrop-filter:blur(18px);
+    padding:0 28px; height:68px;
+    display:flex; align-items:center; justify-content:space-between;
+    border-bottom:1px solid rgba(255,255,255,0.12);
+    box-shadow:0 10px 30px rgba(11,31,58,0.16);
+  }
+  .nav-brand { color:#7ee6ef; font-size:20px; font-weight:800; }
   .nav-brand span { color:white; }
   .nav-tag {
-    background:var(--red); color:white; padding:4px 12px;
-    border-radius:20px; font-size:12px; font-weight:700;
+    background:linear-gradient(135deg, #d86042, #ee8a52); color:white; padding:7px 14px;
+    border-radius:999px; font-size:12px; font-weight:800; box-shadow:0 8px 18px rgba(197,59,49,0.20);
   }
-  .container { max-width:760px; margin:0 auto; padding:24px 16px; }
+  .container { max-width:900px; margin:0 auto; padding:28px 18px 36px; }
   .card {
-    background:white; border-radius:10px; padding:24px;
-    margin-bottom:16px; box-shadow:0 1px 4px rgba(0,0,0,0.08);
+    background:linear-gradient(180deg, rgba(255,255,255,0.94), rgba(255,255,255,0.86));
+    border:1px solid rgba(255,255,255,0.7);
+    backdrop-filter:blur(14px);
+    border-radius:22px; padding:24px;
+    margin-bottom:16px; box-shadow:var(--shadow);
   }
   .card-title {
-    font-size:16px; font-weight:700; color:var(--navy);
+    font-size:17px; font-weight:800; color:var(--navy);
     margin-bottom:16px; padding-bottom:10px;
-    border-bottom:2px solid var(--lgrey);
+    border-bottom:1px solid var(--line);
   }
   .btn {
-    display:inline-block; padding:10px 20px; border-radius:8px;
-    font-size:14px; font-weight:600; cursor:pointer; border:none;
-    text-decoration:none; transition:opacity 0.2s;
+    display:inline-block; padding:12px 20px; border-radius:14px;
+    font-size:14px; font-weight:700; cursor:pointer; border:none;
+    text-decoration:none; transition:transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
   }
-  .btn:hover { opacity:0.88; }
-  .btn-primary { background:var(--cyan); color:var(--navy); }
-  .btn-green   { background:var(--green); color:white; }
-  .btn-red     { background:var(--red); color:white; }
+  .btn:hover { opacity:0.96; transform:translateY(-1px); }
+  .btn-primary { background:linear-gradient(135deg, #7de7ef, #4bb9e8); color:var(--navy); box-shadow:0 12px 24px rgba(19,184,200,0.24); }
+  .btn-green   { background:linear-gradient(135deg, #178d53, #28b36a); color:white; box-shadow:0 12px 24px rgba(20,128,74,0.22); }
+  .btn-red     { background:linear-gradient(135deg, #bf4138, #d86042); color:white; box-shadow:0 12px 24px rgba(197,59,49,0.18); }
   .btn-outline {
-    background:transparent; border:2px solid var(--cyan); color:var(--cyan);
+    background:rgba(255,255,255,0.55); border:1px solid rgba(19,184,200,0.28); color:var(--blue);
   }
   .btn-full { width:100%; display:block; text-align:center; }
   .form-group { margin-bottom:14px; }
@@ -53,20 +69,20 @@
     margin-bottom:5px; text-transform:uppercase; letter-spacing:0.5px;
   }
   input, select, textarea {
-    width:100%; padding:10px 12px; border:1.5px solid #E2E8F0;
-    border-radius:8px; font-size:14px; color:var(--dark);
+    width:100%; padding:12px 14px; border:1px solid rgba(15,42,74,0.12);
+    border-radius:14px; font-size:14px; color:var(--dark); background:rgba(255,255,255,0.92);
   }
   input:focus, select:focus, textarea:focus {
-    outline:none; border-color:var(--cyan);
+    outline:none; border-color:rgba(19,184,200,0.55); box-shadow:0 0 0 4px rgba(19,184,200,0.12);
   }
   .alert {
-    padding:12px 16px; border-radius:8px; font-size:13px;
-    margin-bottom:14px;
+    padding:12px 16px; border-radius:16px; font-size:13px;
+    margin-bottom:14px; box-shadow:0 10px 25px rgba(15,42,74,0.06);
   }
-  .alert-error   { background:#FEE2E2; color:#7F1D1D; border-left:4px solid var(--red); }
-  .alert-success { background:#D1FAE5; color:#064E3B; border-left:4px solid var(--green); }
-  .alert-warn    { background:#FEF3C7; color:#92400E; border-left:4px solid var(--gold); }
-  .alert-info    { background:#E0F2FE; color:#0C4A6E; border-left:4px solid var(--cyan); }
+  .alert-error   { background:linear-gradient(135deg, #fff0ef, #fee2e2); color:#7F1D1D; border-left:4px solid var(--red); }
+  .alert-success { background:linear-gradient(135deg, #ebfaef, #d7f6df); color:#064E3B; border-left:4px solid var(--green); }
+  .alert-warn    { background:linear-gradient(135deg, #fff6df, #fff1cc); color:#92400E; border-left:4px solid var(--gold); }
+  .alert-info    { background:linear-gradient(135deg, #edf9fb, #e3f2ff); color:#0C4A6E; border-left:4px solid var(--cyan); }
   .section-title {
     font-size:11px; font-weight:700; color:var(--muted);
     text-transform:uppercase; letter-spacing:1px; margin-bottom:6px;
@@ -78,8 +94,9 @@
   .kv-key   { color:var(--muted); }
   .kv-val   { font-weight:600; color:var(--dark); }
   .proposal-box {
-    background:var(--navy); border-radius:10px; padding:20px;
-    text-align:center; margin:16px 0;
+    background:radial-gradient(circle at top, rgba(126,230,239,0.20), transparent 32%), linear-gradient(135deg, #0f2749, #163b69 65%, #1d588f);
+    border-radius:22px; padding:24px;
+    text-align:center; margin:16px 0; box-shadow:var(--shadow-strong);
   }
   .proposal-amount { font-size:36px; font-weight:700; color:var(--cyan); }
   .proposal-label  {
@@ -87,7 +104,7 @@
     text-transform:uppercase; letter-spacing:1px;
   }
   .reasoning-box {
-    background:#1E3A6E; border-radius:8px; padding:14px; margin:12px 0;
+    background:linear-gradient(135deg, #1a345e, #214879); border-radius:18px; padding:14px; margin:12px 0;
   }
   .reasoning-box p { color:#BFDBFE; font-size:13px; line-height:1.6; }
   .law-tag {
@@ -104,6 +121,22 @@
   .hidden { display:none !important; }
   .screen { display:none; }
   .screen.active { display:block; }
+  .hero-panel {
+    background:radial-gradient(circle at top left, rgba(126,230,239,0.28), transparent 28%), linear-gradient(135deg, rgba(11,31,58,0.96), rgba(24,89,184,0.88));
+    color:white; border-radius:28px; padding:28px; box-shadow:var(--shadow-strong); margin-bottom:20px; position:relative; overflow:hidden;
+  }
+  .hero-panel::after {
+    content:""; position:absolute; right:-40px; top:-40px; width:180px; height:180px; border-radius:50%; background:rgba(255,255,255,0.08);
+  }
+  .hero-kicker {
+    display:inline-block; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.18); color:#dffcff; padding:6px 12px; border-radius:999px; font-size:11px; font-weight:800; letter-spacing:1px; text-transform:uppercase; margin-bottom:14px;
+  }
+  .hero-title {
+    font-size:30px; font-weight:800; line-height:1.05; letter-spacing:-1px; margin-bottom:10px;
+  }
+  .hero-copy {
+    color:rgba(233,244,255,0.92); font-size:14px; line-height:1.7; max-width:680px;
+  }
 </style>
 </head>
 <body>
@@ -124,6 +157,13 @@
 <!-- SCREEN: Verify email -->
 <div class="screen" id="screenVerify">
   <div class="container" style="max-width:480px;">
+    <div class="hero-panel" style="padding:24px 22px;">
+      <div class="hero-kicker">Respondent Workspace</div>
+      <div class="hero-title" style="font-size:28px;">Review, defend, and resolve with clarity.</div>
+      <div class="hero-copy" style="font-size:13px;">
+        Understand the legal position, submit your side of the story, request proof, and respond to settlement terms from one guided portal.
+      </div>
+    </div>
     <div class="card" style="margin-top:32px;">
       <div class="card-title">Verify Your Identity</div>
       <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">
@@ -144,6 +184,13 @@
 <!-- SCREEN: Case view -->
 <div class="screen" id="screenCase">
   <div class="container">
+    <div class="hero-panel">
+      <div class="hero-kicker">Formal Dispute Notice</div>
+      <div class="hero-title">Respond deliberately before this reaches court.</div>
+      <div class="hero-copy">
+        This portal shows the dispute summary, legal context, proof exchange, and negotiation steps so you can respond in a structured and credible way.
+      </div>
+    </div>
 
     <!-- Warning banner -->
     <div class="alert alert-warn" style="margin-bottom:20px;">
@@ -289,6 +336,18 @@ function renderCase() {
       <b>Note:</b> The claimant's win probability and settlement range
       are confidential and not shown to respondents.
     </div>
+    <div style="margin-top:12px;">
+      <div class="section-title">What Helps The Claimant</div>
+      ${(caseData.insights?.what_helps_claimant || []).map(d =>
+        `<div style="font-size:13px;padding:3px 0;color:var(--dark);">• ${d}</div>`
+      ).join('') || '<div style="font-size:13px;color:var(--muted);">No key strengths highlighted yet.</div>'}
+    </div>
+    <div style="margin-top:12px;">
+      <div class="section-title">Missing Proof / Gaps</div>
+      ${(caseData.insights?.missing_proof || []).map(d =>
+        `<div style="font-size:13px;padding:3px 0;color:var(--gold);">• ${d}</div>`
+      ).join('') || '<div style="font-size:13px;color:var(--muted);">No urgent proof gaps highlighted yet.</div>'}
+    </div>
   `;
 
   // Action panel
@@ -312,8 +371,27 @@ function renderActionPanel(ng, c) {
   }
 
   // Proposal pending response
+  const proofBox = (ng && (ng.proof_requests || []).length > 0) ? `
+    <div class="card">
+      <div class="card-title">Proof Exchange</div>
+      ${(ng.proof_requests || []).filter(p => p.round_number === ng.current_round).map(p => `
+        <div style="border:1px solid #E2E8F0;border-radius:8px;padding:12px;margin-bottom:10px;">
+          <div style="font-size:12px;color:var(--muted);text-transform:uppercase;">${p.requested_by} asked ${p.requested_from}</div>
+          <div style="font-size:13px;font-weight:600;margin-top:4px;">${p.request_text}</div>
+          <div style="font-size:12px;color:${p.status === 'PENDING' ? 'var(--gold)' : 'var(--green)'};margin-top:4px;">${p.status}</div>
+          ${p.response_text ? `<div style="font-size:13px;margin-top:6px;">Response: ${p.response_text}</div>` : ''}
+          ${p.requested_from === 'respondent' && p.status === 'PENDING' ? `
+            <textarea id="proofResponse_${p.id}" style="margin-top:8px;" placeholder="Reply with the proof details, explanation, or why it is unavailable."></textarea>
+            <button class="btn btn-outline" style="margin-top:8px;" onclick="submitProofResponse('${p.id}', ${p.round_number})">Send Proof Response</button>
+          ` : ''}
+        </div>
+      `).join('')}
+    </div>
+  ` : '';
+
   if (ng && ng.proposal_pending) {
-    panel.innerHTML = `
+      panel.innerHTML = `
+      ${proofBox}
       <div class="card">
         <div class="card-title">AI Settlement Proposal — Round ${ng.current_round}</div>
         <div class="proposal-box">
@@ -343,8 +421,9 @@ function renderActionPanel(ng, c) {
   }
 
   // Already submitted this round
-  if (ng && ng.respondent_submitted_this_round) {
-    panel.innerHTML = `
+  if (ng && ng.respondent_submitted_this_round && ng.current_waiting_on !== 'respondent') {
+      panel.innerHTML = `
+      ${proofBox}
       <div class="card">
         <div class="alert alert-success">
           Your offer has been submitted for Round ${ng.current_round}.
@@ -359,6 +438,7 @@ function renderActionPanel(ng, c) {
   // Submit offer form
   const roundNum = ng?.current_round || 1;
   panel.innerHTML = `
+    ${proofBox}
     <div class="card">
       <div class="card-title">Your Response Options</div>
 
@@ -389,6 +469,18 @@ function renderActionPanel(ng, c) {
         <div class="form-group">
           <label>Your offer amount (Rs.)</label>
           <input type="number" id="respondentOffer" placeholder="e.g. 20000">
+        </div>
+        <div class="form-group">
+          <label>Explain your position</label>
+          <textarea id="respondentExplanation" rows="4" placeholder="Explain why your amount or conditions are fair."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Proof / evidence note</label>
+          <textarea id="respondentProofNote" rows="3" placeholder="Mention receipts, invoices, messages, photos, or missing proof."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Ask claimant for proof</label>
+          <input type="text" id="respondentRequestedProof" placeholder="Comma-separated, e.g. move-out photos, payment receipt, invoice copy">
         </div>
         <button class="btn btn-primary" onclick="submitOffer()">
           Submit Offer →
@@ -435,10 +527,19 @@ function renderActionPanel(ng, c) {
 async function submitOffer() {
   const amt = document.getElementById('respondentOffer')?.value;
   if (!amt) return alert('Enter your offer amount.');
+  const explanation = document.getElementById('respondentExplanation')?.value.trim() || '';
+  const proofNote = document.getElementById('respondentProofNote')?.value.trim() || '';
+  const requestedProof = (document.getElementById('respondentRequestedProof')?.value || '')
+    .split(',')
+    .map(x => x.trim())
+    .filter(Boolean);
   try {
     await axios.post(`${API}/api/negotiation/submit-respondent-offer`, {
       case_id:      caseId,
       offer_amount: Number(amt),
+      explanation: explanation,
+      proof_note: proofNote,
+      requested_proof: requestedProof,
     });
     showSuccess('Offer Submitted', 'Your offer has been recorded. The AI Mediator will generate a settlement proposal once both offers are received.');
   } catch(e) {
@@ -461,7 +562,8 @@ async function acceptInFull() {
 async function submitDecision(decision) {
   try {
     await axios.post(`${API}/api/respondent/proposal-response`, {
-      case_id: caseId, email: respondentEmail, decision
+      case_id: caseId, email: respondentEmail, decision,
+      reason: decision === 'REJECT' ? prompt('Optional: why are you rejecting? Mention missing proof if relevant.') || '' : ''
     });
     const msg = decision === 'ACCEPT'
       ? 'You accepted the proposal. Waiting for the claimant.'
@@ -485,6 +587,23 @@ async function disputeFacts() {
     el.classList.remove('hidden');
   } catch(e) {
     alert(e.response?.data?.detail || 'Failed to submit.');
+  }
+}
+
+async function submitProofResponse(requestId, roundNumber) {
+  const text = document.getElementById(`proofResponse_${requestId}`)?.value.trim();
+  if (!text) return alert('Please enter your proof response.');
+  try {
+    await axios.post(`${API}/api/respondent/proof-response`, {
+      case_id: caseId,
+      email: respondentEmail,
+      round_number: roundNumber,
+      request_id: requestId,
+      response_text: text
+    });
+    showSuccess('Proof Shared', 'Your proof response has been shared with the claimant.');
+  } catch(e) {
+    alert(e.response?.data?.detail || 'Failed to submit proof response.');
   }
 }
 

@@ -271,23 +271,25 @@ def _build_history_context(past_rounds: list, track: str) -> str:
     lines = ["NEGOTIATION HISTORY:"]
     for r in past_rounds:
         rn = r["round_number"]
+        claimant = r.get("claimant") or {}
+        respondent = r.get("respondent") or {}
         if track == "non_monetary":
             lines.append(
                 f"Round {rn}: "
-                f"Claimant demanded {r.get('claimant_demands', [])} | "
-                f"Respondent offered {r.get('respondent_commitments', [])} | "
+                f"Claimant demanded {claimant.get('actions', r.get('claimant_demands', []))} | "
+                f"Respondent offered {respondent.get('actions', r.get('respondent_commitments', []))} | "
                 f"AI proposed {r.get('ai_proposed_actions', [])} | "
-                f"Claimant: {r.get('claimant_decision')} | "
-                f"Respondent: {r.get('respondent_decision')}"
+                f"Claimant: {claimant.get('decision', r.get('claimant_decision'))} | "
+                f"Respondent: {respondent.get('decision', r.get('respondent_decision'))}"
             )
         else:
             lines.append(
                 f"Round {rn}: "
-                f"Claimant offered Rs. {r.get('claimant_offer', 0):,.0f} | "
-                f"Respondent offered Rs. {r.get('respondent_offer', 0):,.0f} | "
+                f"Claimant offered Rs. {(claimant.get('amount', r.get('claimant_offer')) or 0):,.0f} | "
+                f"Respondent offered Rs. {(respondent.get('amount', r.get('respondent_offer')) or 0):,.0f} | "
                 f"AI proposed Rs. {r.get('ai_proposed_amount', 0):,.0f} | "
-                f"Claimant: {r.get('claimant_decision')} | "
-                f"Respondent: {r.get('respondent_decision')}"
+                f"Claimant: {claimant.get('decision', r.get('claimant_decision'))} | "
+                f"Respondent: {respondent.get('decision', r.get('respondent_decision'))}"
             )
 
     # Trajectory analysis
@@ -295,12 +297,12 @@ def _build_history_context(past_rounds: list, track: str) -> str:
         prev = past_rounds[-2]
         curr = past_rounds[-1]
         claimant_moved = abs(
-            (curr.get("claimant_offer") or 0) -
-            (prev.get("claimant_offer") or 0)
+            ((curr.get("claimant") or {}).get("amount", curr.get("claimant_offer")) or 0) -
+            ((prev.get("claimant") or {}).get("amount", prev.get("claimant_offer")) or 0)
         )
         respondent_moved = abs(
-            (curr.get("respondent_offer") or 0) -
-            (prev.get("respondent_offer") or 0)
+            ((curr.get("respondent") or {}).get("amount", curr.get("respondent_offer")) or 0) -
+            ((prev.get("respondent") or {}).get("amount", prev.get("respondent_offer")) or 0)
         )
         lines.append(
             f"TRAJECTORY: Claimant moved Rs. {claimant_moved:,.0f} | "

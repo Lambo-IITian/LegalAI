@@ -228,12 +228,50 @@ class CosmosService:
         self.negotiations.replace_item(item=neg_id, body=neg)
         return neg
 
+    def upsert_round_in_negotiation(self, neg_id: str, round_number: int, round_data: dict) -> dict:
+        neg = self.negotiations.read_item(item=neg_id, partition_key=neg_id)
+        replaced = False
+        for i, existing_round in enumerate(neg["rounds"]):
+            if existing_round["round_number"] == round_number:
+                neg["rounds"][i] = round_data
+                replaced = True
+                break
+        if not replaced:
+            neg["rounds"].append(round_data)
+        neg["updated_at"] = self._now()
+        self.negotiations.replace_item(item=neg_id, body=neg)
+        return neg
+
     def get_round(self, neg_id: str, round_number: int) -> Optional[dict]:
         neg = self.negotiations.read_item(item=neg_id, partition_key=neg_id)
         for r in neg["rounds"]:
             if r["round_number"] == round_number:
                 return r
         return None
+
+    def append_proof_request(self, neg_id: str, proof_request: dict) -> dict:
+        neg = self.negotiations.read_item(item=neg_id, partition_key=neg_id)
+        neg.setdefault("proof_requests", []).append(proof_request)
+        neg["updated_at"] = self._now()
+        self.negotiations.replace_item(item=neg_id, body=neg)
+        return neg
+
+    def update_proof_request(self, neg_id: str, request_id: str, updates: dict) -> dict:
+        neg = self.negotiations.read_item(item=neg_id, partition_key=neg_id)
+        for item in neg.get("proof_requests", []):
+            if item["id"] == request_id:
+                item.update(updates)
+                break
+        neg["updated_at"] = self._now()
+        self.negotiations.replace_item(item=neg_id, body=neg)
+        return neg
+
+    def append_shared_note(self, neg_id: str, note: dict) -> dict:
+        neg = self.negotiations.read_item(item=neg_id, partition_key=neg_id)
+        neg.setdefault("shared_notes", []).append(note)
+        neg["updated_at"] = self._now()
+        self.negotiations.replace_item(item=neg_id, body=neg)
+        return neg
 
     # ── Documents ─────────────────────────────────────────────
 
