@@ -1546,8 +1546,8 @@ async function loadNegotiation() {
     // Status message
     const statusMessages = {
       NEGOTIATION_OPEN: 'Negotiation is open. You can submit an offer, explanation, and proof request.',
-      WAITING_FOR_CLAIMANT: 'The next action is with you. Review the round and respond.',
-      WAITING_FOR_RESPONDENT: 'Waiting for the respondent to reply.',
+      WAITING_FOR_CLAIMANT: 'This round is already open. The other side has submitted, and the next action is with you.',
+      WAITING_FOR_RESPONDENT: 'Round 1 starts as soon as the first offer is submitted. Your offer has opened the round and the system is waiting for the respondent.',
       PROOF_REQUESTED: 'A proof request is open. Review the requested material below.',
       PROOF_RESPONSE_PENDING: 'A proof response is pending before negotiation can continue.',
       MEDIATOR_REVIEW: 'Both sides have submitted. The AI mediator is reviewing the round.',
@@ -1612,7 +1612,7 @@ async function loadNegotiation() {
             </div>
           `;
         }
-        if (rd.proposed_amount) {
+        if (rd.proposed_amount !== null && rd.proposed_amount !== undefined) {
           html += `
             <div class="proposal-box">
               <div class="proposal-label">${c.status === 'SETTLEMENT_PENDING_CONFIRMATION' ? 'Direct Settlement Match' : 'AI Mediator Proposal'}</div>

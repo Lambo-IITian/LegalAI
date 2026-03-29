@@ -846,7 +846,7 @@ async def get_negotiation_status(
             "claimant_submitted": bool(claimant.get("submitted_at")),
             "respondent_submitted": bool(respondent.get("submitted_at")),
             "proposal_issued": bool(current_round.get("ai_proposed_amount") or current_round.get("ai_proposed_actions")),
-            "proposed_amount": current_round.get("ai_proposed_amount"),
+            "proposed_amount": current_round.get("settlement_candidate_amount") or current_round.get("ai_proposed_amount"),
             "ai_reasoning": current_round.get("ai_reasoning"),
             "ai_reasoning_breakdown": current_round.get("ai_reasoning_breakdown"),
             "ai_reasoning_log": current_round.get("ai_reasoning_log", []),

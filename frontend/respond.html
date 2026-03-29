@@ -450,6 +450,68 @@ function renderActionPanel(ng, c) {
     return;
   }
 
+  if (ng && ng.current_waiting_on === 'respondent' && ng.claimant_submitted_this_round) {
+      panel.innerHTML = `
+      ${proofBox}
+      <div class="card">
+        <div class="alert alert-info">
+          Round ${ng.current_round || 1} has already started because the claimant submitted the first offer.
+          Your offer is now required. Once you submit, the AI mediator will review both offers and issue a proposal.
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Your Response Options</div>
+
+        <div style="border:1.5px solid var(--green);border-radius:8px;padding:16px;margin-bottom:12px;">
+          <div style="font-weight:700;color:var(--green);margin-bottom:6px;">
+            Option 1: Accept in Full
+          </div>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">
+            Agree to pay the full claimed amount of
+            Rs. ${Number(c.claim_amount||0).toLocaleString('en-IN')}.
+            This immediately resolves the dispute.
+          </p>
+          <button class="btn btn-green" onclick="acceptInFull()">
+            Accept Full Amount →
+          </button>
+        </div>
+
+        <div style="border:1.5px solid var(--cyan);border-radius:8px;padding:16px;margin-bottom:12px;">
+          <div style="font-weight:700;color:var(--navy);margin-bottom:6px;">
+            Option 2: Submit Counter-Offer (Round ${ng.current_round || 1})
+          </div>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">
+            Enter the amount you are willing to pay. This is still Round ${ng.current_round || 1}, not a later round.
+          </p>
+          <div class="form-group">
+            <label>Your offer amount (Rs.)</label>
+            <input type="number" id="respondentOffer" placeholder="e.g. 20000">
+          </div>
+          <div class="form-group">
+            <label>Explain your position</label>
+            <textarea id="respondentExplanation" rows="4" placeholder="Explain why your amount or conditions are fair."></textarea>
+          </div>
+          <div class="form-group">
+            <label>Proof / evidence note</label>
+            <textarea id="respondentProofNote" rows="3" placeholder="Mention receipts, invoices, messages, photos, or missing proof."></textarea>
+          </div>
+          <div class="form-group">
+            <label>Ask claimant for proof</label>
+            <input type="text" id="respondentRequestedProof" placeholder="Comma-separated, e.g. move-out photos, payment receipt, invoice copy">
+          </div>
+          <div class="form-group">
+            <label>Upload supporting evidence</label>
+            <input type="file" id="respondentEvidenceUpload">
+          </div>
+          <button class="btn btn-primary" onclick="submitOffer()">
+            Submit Offer →
+          </button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
   // Already submitted this round
   if (ng && ng.respondent_submitted_this_round && ng.current_waiting_on !== 'respondent') {
       panel.innerHTML = `
@@ -457,7 +519,7 @@ function renderActionPanel(ng, c) {
       <div class="card">
         <div class="alert alert-success">
           Your offer has been submitted for Round ${ng.current_round}.
-          Waiting for the claimant to submit their offer.
+          This round started with the first submitted offer and is now waiting for the claimant to submit their side.
           The AI Mediator will generate a proposal once both offers are received.
         </div>
       </div>

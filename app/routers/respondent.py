@@ -106,14 +106,33 @@ async def get_respondent_case(case_id: str, email: str):
             "current_round": round_number,
             "max_rounds": case.get("max_rounds", 3),
             "current_waiting_on": neg.get("current_waiting_on") if neg else None,
+            "round_started": bool(
+                current_round
+                and (
+                    (current_round.get("claimant") or {}).get("submitted_at")
+                    or (current_round.get("respondent") or {}).get("submitted_at")
+                )
+            ),
+            "claimant_submitted_this_round": bool((current_round or {}).get("claimant", {}).get("submitted_at")),
             "respondent_submitted_this_round": bool((current_round or {}).get("respondent", {}).get("submitted_at")),
             "proposal_pending": bool(
                 current_round
-                and (current_round.get("ai_proposed_amount") or current_round.get("ai_proposed_actions"))
+                and (
+                    current_round.get("settlement_candidate_amount")
+                    or current_round.get("ai_proposed_amount")
+                    or current_round.get("ai_proposed_actions")
+                )
                 and (current_round.get("respondent") or {}).get("decision") == ProposalDecision.PENDING.value
             ),
-            "ai_proposed_amount": current_round.get("ai_proposed_amount") if current_round else None,
-            "ai_reasoning": current_round.get("ai_reasoning") if current_round else None,
+            "ai_proposed_amount": (
+                (current_round.get("settlement_candidate_amount") or current_round.get("ai_proposed_amount"))
+                if current_round else None
+            ),
+            "ai_reasoning": (
+                current_round.get("settlement_candidate_reason")
+                or current_round.get("ai_reasoning")
+                if current_round else None
+            ),
             "ai_reasoning_breakdown": current_round.get("ai_reasoning_breakdown") if current_round else None,
             "ai_reasoning_log": current_round.get("ai_reasoning_log", []) if current_round else [],
             "respondent_decision": (current_round.get("respondent") or {}).get("decision") if current_round else None,
