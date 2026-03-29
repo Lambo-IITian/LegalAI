@@ -623,6 +623,7 @@ function renderActionPanel(ng, c) {
 async function submitOffer() {
   const amt = document.getElementById('respondentOffer')?.value;
   if (!amt) return alert('Enter your offer amount.');
+  const roundNum = caseData?.negotiation?.current_round || 1;
   const explanation = document.getElementById('respondentExplanation')?.value.trim() || '';
   const proofNote = document.getElementById('respondentProofNote')?.value.trim() || '';
   let uploadedEvidenceUrl = '';
@@ -638,12 +639,13 @@ async function submitOffer() {
   try {
     await axios.post(`${API}/api/negotiation/submit-respondent-offer`, {
       case_id:      caseId,
+      round_number: roundNum,
       offer_amount: Number(amt),
       explanation: explanation,
       proof_note: uploadedEvidenceUrl ? `${proofNote}\nUploaded evidence: ${uploadedEvidenceUrl}`.trim() : proofNote,
       requested_proof: requestedProof,
     });
-    showSuccess('Offer Submitted', 'Your offer has been recorded. The AI Mediator will generate a settlement proposal once both offers are received.');
+    showSuccess('Offer Submitted', `Your offer has been recorded for Round ${roundNum}. The AI Mediator will generate a settlement proposal once both offers are received.`);
   } catch(e) {
     alert(e.response?.data?.detail || 'Failed to submit offer.');
   }

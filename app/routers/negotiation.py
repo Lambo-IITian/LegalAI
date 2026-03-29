@@ -217,6 +217,15 @@ def _next_waiting_state(round_doc: dict, neg: dict) -> tuple[CaseStatus, str | N
     return next_waiting_state(round_doc, neg)
 
 
+def _resolve_active_round_number(case: dict, requested_round: int | None) -> int:
+    current_round = case.get("current_round") or 0
+    if current_round and current_round > 0:
+        return current_round
+    if requested_round and requested_round > 0:
+        return requested_round
+    return 1
+
+
 def _open_direct_settlement(case: dict, neg: dict, round_doc: dict, amount: float, reason: str) -> dict:
     round_doc["ai_proposed_amount"] = amount
     round_doc["ai_reasoning"] = reason
@@ -372,7 +381,7 @@ async def submit_claimant_offer(
 
     case = _ensure_negotiation_open(case)
     neg = _ensure_negotiation(case)
-    round_number = body.round_number or case.get("current_round") or 1
+    round_number = _resolve_active_round_number(case, body.round_number)
     round_doc = _get_or_create_round(neg, round_number)
     result = await _handle_offer_submission(case, neg, round_doc, body, "claimant")
     if result["status"] == CaseStatus.MEDIATOR_REVIEW.value:
@@ -393,7 +402,7 @@ async def submit_respondent_offer(
 
     case = _ensure_negotiation_open(case)
     neg = _ensure_negotiation(case)
-    round_number = body.round_number or case.get("current_round") or 1
+    round_number = _resolve_active_round_number(case, body.round_number)
     round_doc = _get_or_create_round(neg, round_number)
     result = await _handle_offer_submission(case, neg, round_doc, body, "respondent")
     if result["status"] == CaseStatus.MEDIATOR_REVIEW.value:

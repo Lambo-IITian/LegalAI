@@ -1,7 +1,38 @@
 import logging
+import re
 from app.services.openai_service import openai_service
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_currency_amount(value):
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        cleaned = value.replace("Rs.", "").replace("Rs", "").replace("₹", "")
+        cleaned = cleaned.replace(",", "").strip()
+        try:
+            return float(cleaned)
+        except ValueError:
+            return None
+    return None
+
+
+def _extract_amount_from_reasoning(reasoning: str) -> float | None:
+    if not reasoning:
+        return None
+    matches = re.findall(r"(?:Rs\.?|₹)\s*([0-9][0-9,]*)", reasoning, flags=re.IGNORECASE)
+    if not matches:
+        return None
+    amounts = []
+    for match in matches:
+        try:
+            amounts.append(float(match.replace(",", "")))
+        except ValueError:
+            continue
+    return max(amounts) if amounts else None
 
 
 # ══════════════════════════════════════════════════════════════
@@ -377,18 +408,31 @@ def _post_process(
 
     if track != "non_monetary":
         # Ensure proposed_amount exists and is reasonable
-        proposed = result.get("proposed_amount")
+        proposed = _coerce_currency_amount(result.get("proposed_amount"))
         zopa_min = analytics.get("zopa_min", 0)
         zopa_max = analytics.get("zopa_max", case.get("claim_amount", 0))
+        reasoning_amount = _extract_amount_from_reasoning(result.get("reasoning", ""))
 
-        if not proposed or proposed <= 0:
+        if proposed is not None:
+            result["proposed_amount"] = proposed
+
+        claim = case.get("claim_amount") or 0
+        if (
+            claim >= 1000
+            and proposed is not None
+            and proposed < 1000
+            and reasoning_amount
+            and reasoning_amount >= 1000
+        ):
+            result["proposed_amount"] = reasoning_amount
+
+        if not result.get("proposed_amount") or result["proposed_amount"] <= 0:
             result["proposed_amount"] = analytics.get(
                 "zopa_optimal",
                 (zopa_min + zopa_max) / 2,
             )
 
         # Clamp to reasonable range (0 to 130% of claim)
-        claim = case.get("claim_amount") or 0
         if claim > 0:
             result["proposed_amount"] = max(
                 0,
