@@ -8,3 +8,4 @@ venv/
 outputs/
 *.pdf
 .DS_Store
+tests
